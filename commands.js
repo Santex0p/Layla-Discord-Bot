@@ -26,6 +26,15 @@ const TEST_COMMAND = {
   contexts: [0, 1, 2],
 };
 
+// Restart / maintenance command: reinicia la sesion y limpia el estado de la bot
+const WACK_COMMAND = {
+  name: 'wack',
+  description: 'Reinicia Layla (sesion Live y contexto)',
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
 // Command containing options
 const CHALLENGE_COMMAND = {
   name: 'challenge',
@@ -44,6 +53,7 @@ const CHALLENGE_COMMAND = {
   contexts: [0, 2],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND];
+const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, WACK_COMMAND];
 
+console.log('[COMMANDS] Registrando comandos para APP_ID:', process.env.APP_ID || 'no definido');
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
