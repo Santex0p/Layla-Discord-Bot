@@ -1,0 +1,15 @@
+services:
+  bot-layla:
+    build: .
+    image: layla-bot:1.0
+    container_name: layla-bot
+    restart: unless-stopped
+    networks:
+      - cloudflared-net
+    env_file:
+      - .env
+
+networks:
+  cloudflared-net:
+    external: true
+
