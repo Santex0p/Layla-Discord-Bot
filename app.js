@@ -39,6 +39,12 @@ const TTS_CHANNELS = 1;
 const LIVE_SESSION_MAX_TOKENS = Number(process.env.LAYLA_LIVE_MAX_TOKENS) || 8000;
 const LIVE_SESSION_MAX_TURNS  = Number(process.env.LAYLA_LIVE_MAX_TURNS)  || 15;
 
+// Tiempo máximo de inactividad antes de cerrar la sesión Live automáticamente.
+// Si no llega ningún mensaje en este período, cerramos el WebSocket para evitar
+// que el servidor siga acumulando tokens sin que nadie esté hablando.
+// Default: 5 minutos. Configurable con LAYLA_IDLE_TIMEOUT_MS.
+const LIVE_IDLE_TIMEOUT_MS = Number(process.env.LAYLA_IDLE_TIMEOUT_MS) || 5 * 60 * 1000;
+
 // Historial local por canal: usado para dar contexto en el fallback (generateContent)
 // `HISTORY_SIZE` controla cuántos mensajes se guardan (por defecto 8)
 const HISTORY_SIZE = Number(process.env.LAYLA_HISTORY_SIZE) || 8;
@@ -53,6 +59,7 @@ let liveTurnQueue = Promise.resolve(); // cola para serializar turnos
 let liveDisabledReason = null;    // texto explicando por qué Live fue deshabilitado
 let liveSessionTokenCount = 0;    // suma acumulada de tokens de todos los turnos de la sesion actual
 let liveSessionTurnCount  = 0;    // numero de turnos completados en la sesion actual (respaldo si usageMetadata no llega)
+let liveIdleTimer = null;         // timer que cierra la sesión Live tras inactividad prolongada
 
 // Gemini TTS suele devolver PCM lineal de 16 bits. Convertimos ese PCM a MP3
 // usando `ffmpeg` (paquete `ffmpeg-static`) porque evita dependencias nativas
@@ -204,6 +211,25 @@ function shouldDisableLive(error) {
     || message.includes('sesion live api se cerro');
 }
 
+// Detecta errores de cuota / rate-limit de Gemini (HTTP 429 / RESOURCE_EXHAUSTED).
+// Son transitorios: la sesión se puede reconectar tras responder con texto.
+function isQuotaError(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return msg.includes('429')
+    || msg.includes('quota')
+    || msg.includes('rate limit')
+    || msg.includes('resource_exhausted')
+    || msg.includes('resource exhausted')
+    || msg.includes('too many requests');
+}
+
+// Detecta interrupciones transitorias del turno Live (el servidor corto el turno en curso).
+// No son errores permanentes: se puede reconectar y continuar.
+function isInterruptedTurnError(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return msg.includes('interrumpio el turno');
+}
+
 // Genera texto con `models.generateContent`. Si `channelId` existe se incluye
 // el historial local (buildHistoryContents) para dar contexto en el fallback.
 async function generateTextReply(text, channelId) {
@@ -239,6 +265,43 @@ function appendToHistory(channelId, role, text) {
   } else {
     conversationHistories.set(channelId, prev);
   }
+}
+
+// Reemplaza las menciones en `message.content` por nombres legibles.
+// Soporta usuarios, roles y canales. Devuelve el texto con @Nombre / #canal.
+function resolveMentionsInContent(message) {
+  if (!message || typeof message.content !== 'string') return '';
+  let content = message.content;
+
+  try {
+    // Usuarios
+    const users = message.mentions?.users || new Map();
+    users.forEach((user) => {
+      const member = message.guild?.members?.cache?.get(user.id) || null;
+      const name = (member && member.displayName) || user.username || 'usuario';
+      // Match both <@123> and <@!123>
+      const userRegex = new RegExp(`<@!?${user.id}>`, 'g');
+      content = content.replace(userRegex, `@${name}`);
+    });
+
+    // Roles
+    const roles = message.mentions?.roles || new Map();
+    roles.forEach((role) => {
+      const roleRegex = new RegExp(`<@&${role.id}>`, 'g');
+      content = content.replace(roleRegex, `@${role.name}`);
+    });
+
+    // Canales
+    const channels = message.mentions?.channels || new Map();
+    channels.forEach((ch) => {
+      const chRegex = new RegExp(`<#${ch.id}>`, 'g');
+      content = content.replace(chRegex, `#${ch.name}`);
+    });
+  } catch (e) {
+    return message.content;
+  }
+
+  return content;
 }
 
 function buildHistoryContents(channelId) {
@@ -320,6 +383,30 @@ async function generateVoiceReplyFallback(text, channelId) {
   };
 }
 
+// Cancela el timer de inactividad activo (si existe).
+function clearLiveIdleTimer() {
+  if (liveIdleTimer) {
+    clearTimeout(liveIdleTimer);
+    liveIdleTimer = null;
+  }
+}
+
+// Reinicia el contador de inactividad. Llámalo después de cada mensaje procesado.
+// Si el timer llega a cero, cierra la sesión Live (pero conserva el historial local).
+function resetLiveIdleTimer(channelId) {
+  clearLiveIdleTimer();
+
+  if (!liveSession) return; // solo aplica cuando hay sesion abierta
+
+  liveIdleTimer = setTimeout(() => {
+    liveIdleTimer = null;
+    if (!liveSession) return;
+    const minutes = Math.round(LIVE_IDLE_TIMEOUT_MS / 60000);
+    console.warn(`⏳ [LIVE] Sesion cerrada por inactividad (${minutes} min sin mensajes). El historial local se conserva.`);
+    resetLiveSession({ clearHandle: true });
+  }, LIVE_IDLE_TIMEOUT_MS);
+}
+
 // Cierra la sesión Live y resetea variables vinculadas a la conexión.
 // No hace reconexión automática: `ensureLiveSession()` la reintentará cuando sea necesario.
 function resetLiveSession(options = {}) {
@@ -342,6 +429,10 @@ function resetLiveSession(options = {}) {
   if (clearHandle) {
     liveSessionHandle = null;
   }
+
+  // También cancelamos el timer de inactividad al cerrar la sesión para evitar
+  // que un timer obsoleto intente cerrar una sesión que ya no existe.
+  clearLiveIdleTimer();
 }
 
 function rejectPendingLiveTurn(error) {
@@ -603,29 +694,60 @@ client.on('messageCreate', async (message) => {
   if (userMessage === '!layla on') {
     laylaActive = true;
     console.log('Modo conversacion ACTIVADO.');
-    return message.reply('Modo conversacion activado');
+    return message.reply('Vamos a hablar :3');
   }
 
   if (userMessage === '!layla off') {
     laylaActive = false;
     console.log('Modo conversacion DESACTIVADO.');
-    return message.reply('Modo conversacion desactivado.');
+    return message.reply('Hasta luego :c');
   }
 
 if (laylaActive) {
   await message.channel.sendTyping();
   try {
     const channelId = message.channel.id;
-    appendToHistory(channelId, 'user', message.content);
+    const incomingText = resolveMentionsInContent(message) || message.content;
+    appendToHistory(channelId, 'user', incomingText);
 
     let voiceResponse;
 
     if (liveDisabledReason) {
-      voiceResponse = await generateVoiceReplyFallback(message.content, channelId);
+      voiceResponse = await generateVoiceReplyFallback(incomingText, channelId);
     } else {
       try {
-        voiceResponse = await enqueueLiveTurn(message.content, channelId);
+        voiceResponse = await enqueueLiveTurn(incomingText, channelId);
       } catch (error) {
+        // Cuota excedida o turno interrumpido inesperadamente:
+        // responder con texto, reconectar sin deshabilitar Live de forma permanente.
+        if (isQuotaError(error) || isInterruptedTurnError(error)) {
+          const label = isQuotaError(error)
+            ? '🚫 [LIVE] Cuota excedida'
+            : '⚡ [LIVE] Sesion interrumpida inesperadamente';
+          console.warn(`${label}: ${error.message}. Respondiendo con texto y reconectando la sesion...`);
+
+          resetLiveSession({ clearHandle: true });
+
+          let replyText = '';
+          try {
+            const textResult = await generateTextReply(incomingText, channelId);
+            replyText = textResult.transcript;
+          } catch (textError) {
+            console.warn('[LIVE] Error generando respuesta de texto:', textError.message);
+            replyText = ':sweat_smile: ?';
+          }
+
+          await message.reply(replyText).catch(() => {});
+          if (replyText) appendToHistory(channelId, 'assistant', replyText);
+
+          // Reconectar en segundo plano para que el siguiente mensaje ya tenga sesion lista
+          ensureLiveSession(channelId).catch((e) =>
+            console.warn(`⚠️ [LIVE] Reconexion en segundo plano fallo: ${e.message}`)
+          );
+
+          return;
+        }
+
         if (!shouldDisableLive(error)) {
           throw error;
         }
@@ -687,6 +809,10 @@ if (laylaActive) {
         : `turnos ${liveSessionTurnCount}/${LIVE_SESSION_MAX_TURNS}`;
       console.warn(`⚠️ [LIVE] Rotando sesion (${reason}). La proxima conversacion arrancara con resumen del historial local.`);
       resetLiveSession({ clearHandle: true });
+    } else {
+      // Sesion sigue activa: reiniciar el contador de inactividad para que
+      // se cierre sola si no llegan mas mensajes en LIVE_IDLE_TIMEOUT_MS.
+      resetLiveIdleTimer(channelId);
     }
 
   } catch (error) {
@@ -727,6 +853,15 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     return;
+  }
+
+  if (commandName === 'active') {
+    lylaActive = true;
+    return interaction.reply('¡Hablemos! :3');
+  }
+  if (commandName === 'desactive') {
+    lylaActive = false;
+    return interaction.reply('Hasta luego :c');
   }
 
   // mas comandos
