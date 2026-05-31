@@ -9,7 +9,11 @@ Conversations with TTS utilize the **Gemini Live API** over WebSockets. This arc
 
 ## Docker Engine
 
-This project uses **Docker Compose** to run in a virtualized, secure, and isolated environment. While it is fully pre-configured to be deployed alongside a Cloudflare Tunnel, port-forwarding remains completely feasible if preferred.
+This project uses **Docker Compose** to run in a virtualized, secure, and isolated environment. While it is fully pre-configured to be deployed alongside a Cloudflare Tunnel, **port-forwarding remains completely feasible if preferred.**
+
+## Values
+
+You need to fill the values in .env.example and rename it to .env
 
 ## Useful Commands
 
