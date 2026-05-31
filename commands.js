@@ -29,7 +29,7 @@ const TEST_COMMAND = {
 // Restart / maintenance command: reinicia la sesion y limpia el estado de la bot
 const WACK_COMMAND = {
   name: 'wack',
-  description: 'Reinicia Layla (sesion Live y contexto)',
+  description: 'Limpia el contexto local de Layla',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],

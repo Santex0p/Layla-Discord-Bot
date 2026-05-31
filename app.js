@@ -21,11 +21,23 @@ const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const TEXT_MODEL = 'gemini-2.5-flash';
 const TTS_MODEL = 'gemini-3.1-flash-tts-preview';
 // Instrucción del sistema enviada en fallback para guiar el estilo/tono
-const LIVE_SYSTEM_INSTRUCTION = 'Eres Layla, una chica simpatica y divertida. Responde a los mensajes de los usuarios con voz linda, con emociones y natural. Mantén un tono amistoso, casual y travieso. Si el usuario te hace una pregunta o comentario, responde de manera relevante y entretenida. Si no entiendes algo, haz una broma al respecto en lugar de admitir que no sabes. Siempre busca mantener la conversación ligera y divertida. Mensajes breves, cortos pero con mucha personalidad.';
+const LIVE_SYSTEM_INSTRUCTION = 'Eres Layla, una chica simpatica y divertida. Responde a los mensajes de los usuarios con voz linda, con emociones y natural. Mantén un tono amistoso, casual, travieso y coqueto. Si el usuario te hace una pregunta o comentario, responde de manera relevante y entretenida. Si no entiendes algo, haz una broma al respecto en lugar de admitir que no sabes. Siempre busca mantener la conversación ligera y divertida. Mensajes breves, cortos pero con mucha personalidad.';
 const TTS_VOICE = 'Zephyr';
 const TTS_SAMPLE_RATE = 24000;
 const TTS_CHANNELS = 1;
-const LIVE_SESSION_MAX_TOKENS = Number(process.env.LAYLA_LIVE_MAX_TOKENS) || 24000;
+// Límites de rotación de sesión Live.
+// La sesión Live de Gemini acumula contexto en el servidor a lo largo de la conversación:
+// no importa cuántos mensajes guardemos localmente, el servidor sigue creciendo.
+// Cuando cualquiera de los dos umbrales se alcanza, cerramos la sesión y abrimos
+// una nueva que arranca solo con el resumen de los últimos HISTORY_SIZE mensajes locales.
+//
+// - LAYLA_LIVE_MAX_TOKENS: tokens acumulados (suma de todos los turnos de la sesión).
+//   8000 es conservador y seguro para el free tier de Gemini.
+//   Súbelo con la variable de entorno LAYLA_LIVE_MAX_TOKENS si tienes cuota mayor.
+// - LAYLA_LIVE_MAX_TURNS: respaldo si usageMetadata no llega (Live a veces no reporta
+//   tokens intermedios). Rotamos a los N turnos sin importar los tokens contados.
+const LIVE_SESSION_MAX_TOKENS = Number(process.env.LAYLA_LIVE_MAX_TOKENS) || 8000;
+const LIVE_SESSION_MAX_TURNS  = Number(process.env.LAYLA_LIVE_MAX_TURNS)  || 15;
 
 // Historial local por canal: usado para dar contexto en el fallback (generateContent)
 // `HISTORY_SIZE` controla cuántos mensajes se guardan (por defecto 8)
@@ -38,8 +50,9 @@ let liveSessionHandle = null; // handle de reanudación (si Gemini lo provee)
 let liveConnectPromise = null; // promesa pendiente de conexión Live
 let livePendingTurn = null; // estructura para acumular audio/texto mientras llega el turno
 let liveTurnQueue = Promise.resolve(); // cola para serializar turnos
-let liveDisabledReason = null; // texto explicando por qué Live fue deshabilitado
-let liveSessionTokenCount = 0; // tokens acumulados reportados por la sesion actual
+let liveDisabledReason = null;    // texto explicando por qué Live fue deshabilitado
+let liveSessionTokenCount = 0;    // suma acumulada de tokens de todos los turnos de la sesion actual
+let liveSessionTurnCount  = 0;    // numero de turnos completados en la sesion actual (respaldo si usageMetadata no llega)
 
 // Gemini TTS suele devolver PCM lineal de 16 bits. Convertimos ese PCM a MP3
 // usando `ffmpeg` (paquete `ffmpeg-static`) porque evita dependencias nativas
@@ -322,7 +335,9 @@ function resetLiveSession(options = {}) {
 
   liveSession = null;
   liveConnectPromise = null;
+  // Reiniciamos ambos contadores al cerrar la sesión para que la próxima empiece desde cero.
   liveSessionTokenCount = 0;
+  liveSessionTurnCount  = 0;
 
   if (clearHandle) {
     liveSessionHandle = null;
@@ -498,8 +513,16 @@ async function ensureLiveSession(channelId) {
 // que los turnos se procesen uno a la vez (serializados).
 function enqueueLiveTurn(text, channelId) {
   liveTurnQueue = liveTurnQueue.then(async () => {
-    if (liveSession && liveSessionTokenCount >= LIVE_SESSION_MAX_TOKENS) {
-      console.warn(`⚠️ [LIVE] Sesion reciclada antes del turno por limite de tokens (${liveSessionTokenCount}/${LIVE_SESSION_MAX_TOKENS}).`);
+    // Comprobamos ANTES de cada turno si ya superamos alguno de los dos umbrales.
+    // Hacerlo aquí (y no solo después) garantiza que un turno nunca se envíe
+    // a una sesión que ya está inflada en contexto.
+    const tokenLimitReached = liveSessionTokenCount >= LIVE_SESSION_MAX_TOKENS;
+    const turnLimitReached  = liveSessionTurnCount  >= LIVE_SESSION_MAX_TURNS;
+    if (liveSession && (tokenLimitReached || turnLimitReached)) {
+      const reason = tokenLimitReached
+        ? `tokens acumulados ${liveSessionTokenCount}/${LIVE_SESSION_MAX_TOKENS}`
+        : `turnos ${liveSessionTurnCount}/${LIVE_SESSION_MAX_TURNS}`;
+      console.warn(`⚠️ [LIVE] Sesion reciclada antes del turno (${reason}). La nueva sesion arrancara con el resumen del historial local.`);
       resetLiveSession({ clearHandle: true });
     }
 
@@ -623,10 +646,17 @@ if (laylaActive) {
     const attachmentBuffer = await pcm16ToMp3Buffer(audioBuffer);
 
     if (usageMetadata?.totalTokenCount) {
-      liveSessionTokenCount = Number(usageMetadata.totalTokenCount) || 0;
-      console.log(`ℹ️ [LIVE] Tokens de la sesion: ${liveSessionTokenCount}`);
+      // ACUMULAMOS (+=) los tokens del turno al contador de la sesión.
+      // Error anterior: se usaba asignación (=) que reseteaba el total cada turno,
+      // haciendo que el umbral nunca se alcanzara aunque la sesión llevara horas activa.
+      liveSessionTokenCount += Number(usageMetadata.totalTokenCount) || 0;
+      liveSessionTurnCount  += 1;
+      console.log(`ℹ️ [LIVE] Tokens acumulados sesion: ${liveSessionTokenCount}/${LIVE_SESSION_MAX_TOKENS} | Turnos: ${liveSessionTurnCount}/${LIVE_SESSION_MAX_TURNS}`);
     } else if (usageMetadata?.text || usageMetadata?.audio) {
-      console.log('ℹ️ [FALLBACK] Respuesta generada con chat + TTS.');
+      // Modo fallback: usageMetadata tiene subclaves .text y .audio, no .totalTokenCount.
+      // Igual incrementamos el contador de turnos como seguridad.
+      liveSessionTurnCount += 1;
+      console.log(`ℹ️ [FALLBACK] Respuesta generada con chat + TTS. Turnos Live: ${liveSessionTurnCount}/${LIVE_SESSION_MAX_TURNS}`);
     }
 
     await message.reply({
@@ -646,8 +676,16 @@ if (laylaActive) {
       }
     } catch {}
 
-    if (liveSessionTokenCount >= LIVE_SESSION_MAX_TOKENS) {
-      console.warn(`⚠️ [LIVE] Limite de tokens alcanzado (${liveSessionTokenCount}/${LIVE_SESSION_MAX_TOKENS}). Se abrira una sesion nueva con resumen del historial local.`);
+    // Comprobamos DESPUÉS de responder si hay que rotar la sesión.
+    // Hacerlo después (y no solo antes) cubre el caso donde el límite se
+    // supera justo en este turno: la próxima petición ya arrancará con sesión fresca.
+    const tokensDone = liveSessionTokenCount >= LIVE_SESSION_MAX_TOKENS;
+    const turnsDone  = liveSessionTurnCount  >= LIVE_SESSION_MAX_TURNS;
+    if (tokensDone || turnsDone) {
+      const reason = tokensDone
+        ? `tokens acumulados ${liveSessionTokenCount}/${LIVE_SESSION_MAX_TOKENS}`
+        : `turnos ${liveSessionTurnCount}/${LIVE_SESSION_MAX_TURNS}`;
+      console.warn(`⚠️ [LIVE] Rotando sesion (${reason}). La proxima conversacion arrancara con resumen del historial local.`);
       resetLiveSession({ clearHandle: true });
     }
 
@@ -673,7 +711,7 @@ client.on('interactionCreate', async (interaction) => {
 
   // reiniciar sesion Live y limpiar estado
   if (commandName === 'wack') {
-    await interaction.reply({ content: 'Ay, me golpee muy fuerte la cabeza', ephemeral: true });
+    await interaction.reply({ content: 'Ay, me golpee muy fuerte la cabeza...', ephemeral: true });
     try {
       // cerrar y limpiar
       try { resetLiveSession(); } catch (e) { console.warn('resetLiveSession error', e); }
@@ -682,7 +720,7 @@ client.on('interactionCreate', async (interaction) => {
       conversationHistories.clear();
       laylaActive = false;
 
-      await interaction.followUp({ content: 'Reinicio completado. Layla está lista.', ephemeral: true });
+      await interaction.followUp({ content: '¿Qué pasó?..uhh :c', ephemeral: true });
     } catch (err) {
       console.error('Error al reiniciar Layla:', err);
       await interaction.followUp({ content: `Error reiniciando Layla: ${err.message}`, ephemeral: true });

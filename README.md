@@ -1,20 +1,20 @@
 # Layla Discord Bot
 
-Bot de Discord con integracion a Gemini para responder por texto o TTS
-Poco a poco se estan agregando funciones de moderacion 
+A Discord bot integrated with Google Gemini to respond via text or Text-to-Speech (TTS). 
+Moderation features are being added incrementally.
 
-# API GEMINI
+## Gemini API
 
-La conversaciones con el TTS se hacen usando Live API para no hacer tts de las mismas respuestas y asi ahorrar tokens. El bitrate tambien esta optimizado
+Conversations with TTS utilize the **Gemini Live API** over WebSockets. This architectural approach avoids making separate TTS API calls for every model response, drastically lowering overall latency, saving tokens by avoiding redundant context re-submissions, and optimizing audio stream bitrates.
 
-# Docker engine
+## Docker Engine
 
-Este proyecto usa docker compose para correr en un entorno virtual y seguro. Esta pensado para usar un tunel de cloudflare pero es totalmente posible abrir puertos si es necesario
+This project uses **Docker Compose** to run in a virtualized, secure, and isolated environment. While it is fully pre-configured to be deployed alongside a Cloudflare Tunnel, port-forwarding remains completely feasible if preferred.
 
-# Comandos utiles 
+## Useful Commands
 
-Si desea continuar usando docker compose:
+To build and run the services in the background using Docker Compose:
 
-`doocker compose up -d --build`
-
+```bash
+docker compose up -d --build
 
