@@ -6,6 +6,7 @@ Moderation features are being added incrementally.
 ## Gemini API
 
 Conversations with TTS utilize the **Gemini Live API** over WebSockets. This architectural approach avoids making separate TTS API calls for every model response, drastically lowering overall latency, saving tokens by avoiding redundant context re-submissions, and optimizing audio stream bitrates.
+Get your Free API Key in: https://aistudio.google.com/api-keys
 
 ## Docker Engine
 
