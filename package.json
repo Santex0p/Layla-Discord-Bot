@@ -2,7 +2,7 @@
   "name": "layla-discord-bot",
   "private": true,
   "version": "1.0.0",
-  "description": "Bot de Discord con IA",
+  "description": "Bot de Discord con IA TTS",
   "main": "app.js",
   "type": "module",
   "engines": {

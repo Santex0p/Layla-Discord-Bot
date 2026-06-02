@@ -53,23 +53,25 @@ const CHALLENGE_COMMAND = {
   contexts: [0, 2],
 };
 
-const ACTIVE_COMMAND = {
-  name: 'active',
-  description: 'Activa el modo conversacion',
+const TALK_COMMAND = {
+  name: 'talk',
+  description: 'Activa a Layla solo en este canal',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
+  default_member_permissions: '8',
 };
 
-const DESACTIVE_COMMAND = {
-  name: 'desactive',
-  description: 'Desactiva el modo conversacion',
+const NOTALK_COMMAND = {
+  name: 'notalk',
+  description: 'Desactiva a Layla solo en este canal',
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
+  default_member_permissions: '8',
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, WACK_COMMAND];
+const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, WACK_COMMAND, TALK_COMMAND, NOTALK_COMMAND];
 
 console.log('[COMMANDS] Registrando comandos para APP_ID:', process.env.APP_ID || 'no definido');
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
