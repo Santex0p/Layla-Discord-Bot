@@ -14,9 +14,9 @@
     "ffmpeg-static": "^5.2.0"
   },
   "scripts": {
-    "start": "node app.js",
+    "start": "node src/index.js",
     "register": "node commands.js",
-    "dev": "nodemon app.js"
+    "dev": "nodemon src/index.js"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
