@@ -1,5 +1,6 @@
 import stateManager from '../models/ChannelStateManager.js';
 import { getRandomEmoji } from '../../utils.js';
+import voiceChannelService from '../services/VoiceChannelService.js';
 
 export default {
   name: 'interactionCreate',
@@ -46,6 +47,14 @@ export default {
     if (commandName === 'notalk') {
       stateManager.deactivateChannel(interaction.channelId);
       return interaction.reply('Adiós, me voy a dormir... zzz');
+    }
+
+    if (commandName === 'call') {
+      return voiceChannelService.join(interaction);
+    }
+
+    if (commandName === 'endcall') {
+      return voiceChannelService.leave(interaction);
     }
   }
 };

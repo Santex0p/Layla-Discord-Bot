@@ -1,9 +1,9 @@
 import 'dotenv/config';
 import { Client, GatewayIntentBits } from 'discord.js';
-
 import readyEvent from './events/ready.js';
 import messageCreateEvent from './events/messageCreate.js';
 import interactionCreateEvent from './events/interactionCreate.js';
+import voiceChannelService from './services/VoiceChannelService.js';
 
 // Cliente de Discord: configuración de intents mínimos necesarios para chat
 const client = new Client({
@@ -11,6 +11,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
 });
 
@@ -24,6 +25,11 @@ for (const event of events) {
     client.on(event.name, (...args) => event.execute(...args, client));
   }
 }
+
+// === VOZ: Auto-disconnect + Saludos automáticos ===
+client.on('voiceStateUpdate', (oldState, newState) => {
+  voiceChannelService.handleVoiceStateUpdate(oldState, newState, client);
+});
 
 // Eventos de debug
 client.on('error', (err) => {

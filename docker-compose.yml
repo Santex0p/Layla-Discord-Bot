@@ -6,12 +6,6 @@ services:
     restart: unless-stopped
     volumes:
       - /home/santiago/services/infra/web/nginx/html/layla-bot:/app/layla-media
-    networks:
-      - cloudflared-net
     env_file:
       - .env
-
-networks:
-  cloudflared-net:
-    external: true
 

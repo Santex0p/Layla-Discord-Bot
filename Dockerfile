@@ -1,7 +1,8 @@
-# 1. Usa una imagen oficial de Node.js (la versión 20 es excelente y ligera)
 FROM node:20-slim
 
-# 2. Crea la carpeta donde vivirá tu bot dentro del contenedor
+# Instalar dependencias del sistema necesarias para compilar @discordjs/opus (node-gyp)
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # 3. Copia SOLO los archivos de dependencias primero (esto hace que Docker sea más rápido)

@@ -49,6 +49,7 @@ class ChannelStateManager {
         historyIdleTimer: null,
         quotaBackoffUntil: 0,
         quotaRetryTimer: null,
+        voiceMode: false,
       };
       this.liveChannelStates.set(channelId, state);
     }
@@ -250,15 +251,27 @@ class ChannelStateManager {
     ].join('\n');
   }
 
+  setVoiceMode(channelId, enabled) {
+    const state = this.getLiveChannelState(channelId);
+    state.voiceMode = !!enabled;
+  }
+
   buildLiveSystemInstruction(channelId) {
+    const state = this.getLiveChannelState(channelId);
     const identityInstruction = this.buildIdentityInstruction();
     const historySummary = this.buildLiveSessionSummary(channelId);
-
-    if (!historySummary) {
-      return `${CONFIG.LIVE_SYSTEM_INSTRUCTION}\n\n${identityInstruction}`;
+    
+    let voiceAddon = '';
+    if (state.voiceMode) {
+      voiceAddon = state.isGroupCall ? CONFIG.VOICE_SYSTEM_INSTRUCTION_GROUP : CONFIG.VOICE_SYSTEM_INSTRUCTION_SOLO;
     }
 
-    return `${CONFIG.LIVE_SYSTEM_INSTRUCTION}\n\n${identityInstruction}\n\n${historySummary}`;
+    const parts = [CONFIG.LIVE_SYSTEM_INSTRUCTION];
+    if (voiceAddon) parts.push(voiceAddon);
+    parts.push(identityInstruction);
+    if (historySummary) parts.push(historySummary);
+
+    return parts.join('\n\n');
   }
 
   buildUserTurnText(authorName, text) {

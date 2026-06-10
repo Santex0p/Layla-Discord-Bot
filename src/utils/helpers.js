@@ -45,11 +45,10 @@ export function extractAudioPartFromResponse(response) {
 
 export function shouldDisableLive(error) {
   const message = String(error?.message || error || '').toLowerCase();
-  return message.includes('1008')
-    || message.includes('400')
-    || message.includes('404')
-    || message.includes('operation is not implemented')
-    || message.includes('supported, or enabled');
+  // 400 = Bad Request (Usually malformed input, invalid API key, etc)
+  // 404 = Model Not Found (Wrong model name in config)
+  // Eliminamos 1008 porque son cierres forzosos transitorios de Google o limites de seguridad.
+  return message.includes('400') || message.includes('404');
 }
 
 export function isQuotaError(error) {
