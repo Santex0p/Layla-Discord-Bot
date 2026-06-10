@@ -1,4 +1,8 @@
+import fs from 'fs';
+import path from 'path';
 import { CONFIG } from '../config/constants.js';
+
+const AUTOTALK_FILE = path.join(process.cwd(), 'autotalk.json');
 
 class ChannelStateManager {
   constructor() {
@@ -7,6 +11,32 @@ class ChannelStateManager {
     this.liveChannelStates = new Map();
     this.activeChannelIds = new Set();
     this.liveDisabledReason = null;
+
+    this._loadAutoTalk();
+  }
+
+  _loadAutoTalk() {
+    try {
+      if (fs.existsSync(AUTOTALK_FILE)) {
+        const data = fs.readFileSync(AUTOTALK_FILE, 'utf8');
+        const list = JSON.parse(data);
+        if (Array.isArray(list)) {
+          list.forEach(id => this.activeChannelIds.add(id));
+          console.log(`[STATE] Cargados ${list.length} canales activos desde disco.`);
+        }
+      }
+    } catch (e) {
+      console.error(`[STATE] Error leyendo autotalk.json:`, e.message);
+    }
+  }
+
+  _saveAutoTalk() {
+    try {
+      const list = Array.from(this.activeChannelIds);
+      fs.writeFileSync(AUTOTALK_FILE, JSON.stringify(list, null, 2), 'utf8');
+    } catch (e) {
+      console.error(`[STATE] Error guardando autotalk.json:`, e.message);
+    }
   }
 
   getLiveDisabledReason() {
@@ -23,10 +53,12 @@ class ChannelStateManager {
 
   activateChannel(channelId) {
     this.activeChannelIds.add(channelId);
+    this._saveAutoTalk();
   }
 
   deactivateChannel(channelId) {
     this.activeChannelIds.delete(channelId);
+    this._saveAutoTalk();
     this.resetLiveSession(channelId, { clearHandle: true });
     this.clearHistoryIdleTimer(channelId);
     this.liveChannelStates.delete(channelId);
