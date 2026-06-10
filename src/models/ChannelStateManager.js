@@ -2,7 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import { CONFIG } from '../config/constants.js';
 
-const AUTOTALK_FILE = path.join(process.cwd(), 'autotalk.json');
+const DATA_DIR = path.join(process.cwd(), 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+const AUTOTALK_FILE = path.join(DATA_DIR, 'autotalk.json');
 
 class ChannelStateManager {
   constructor() {

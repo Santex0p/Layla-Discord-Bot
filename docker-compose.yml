@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     volumes:
       - /home/santiago/services/infra/web/nginx/html/layla-bot:/app/layla-media
+      - ./data:/app/data
     env_file:
       - .env
 
