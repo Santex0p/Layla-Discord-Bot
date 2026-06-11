@@ -27,7 +27,7 @@ const TALK_COMMAND = {
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
-  default_member_permissions: '8',
+  default_member_permissions: '32',
 };
 
 const NOTALK_COMMAND = {
@@ -36,7 +36,7 @@ const NOTALK_COMMAND = {
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
-  default_member_permissions: '8',
+  default_member_permissions: '32',
 };
 
 const CALL_COMMAND = {

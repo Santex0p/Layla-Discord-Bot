@@ -32,9 +32,9 @@ export default {
       return;
     }
 
-    if ((commandName === 'talk' || commandName === 'notalk') && !interaction.memberPermissions?.has('Administrator')) {
+    if ((commandName === 'talk' || commandName === 'notalk') && !interaction.memberPermissions?.has('ManageGuild')) {
       return interaction.reply({
-        content: 'Ey, Solo mis administradores pueden usar este comando. :c',
+        content: 'Ey, Solo mis administradores (o roles con permiso de Gestionar Servidor) pueden usar este comando. :c',
         ephemeral: true,
       });
     }
