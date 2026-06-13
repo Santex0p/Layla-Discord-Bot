@@ -99,6 +99,69 @@ class AiService {
     };
   }
 
+  async checkOllamaConnection() {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const url = new URL('/api/tags', CONFIG.OLLAMA_URL).toString();
+      
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) throw new Error(`Ollama HTTP Error: ${response.status}`);
+      return true;
+    } catch (e) {
+      throw new Error(`Ollama inalcanzable o apagado: ${e.message}`);
+    }
+  }
+
+  async generateOllamaReply(text, channelId, userId) {
+    await this.checkOllamaConnection();
+
+    const historyContents = stateManager.buildHistoryContents(channelId, userId);
+    
+    // Transformar el formato de Gemini (text) al formato de Ollama (messages)
+    const messages = [
+      { role: 'system', content: CONFIG.LIVE_SYSTEM_INSTRUCTION }
+    ];
+
+    for (const msg of historyContents) {
+      // historyContents son strings pre-formateadas "Usuario [Nombre]: texto" o "Layla: texto"
+      // Simplificamos: si empieza con "Layla:", es assistant. Si no, es user.
+      if (msg.startsWith('Layla:')) {
+        messages.push({ role: 'assistant', content: msg.replace('Layla: ', '') });
+      } else {
+        messages.push({ role: 'user', content: msg });
+      }
+    }
+    
+    messages.push({ role: 'user', content: text });
+
+    const url = new URL('/api/chat', CONFIG.OLLAMA_URL).toString();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: CONFIG.OLLAMA_MODEL,
+        messages: messages,
+        stream: false
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama API Error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const transcript = data.message?.content?.trim();
+
+    if (!transcript) {
+      throw new Error('Ollama no devolvio texto valido.');
+    }
+
+    return { transcript };
+  }
+
   handleLiveMessage(channelId, message) {
     const state = stateManager.getLiveChannelState(channelId);
     const isVoice = state.voiceMode;

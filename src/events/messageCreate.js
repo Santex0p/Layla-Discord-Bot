@@ -82,8 +82,16 @@ export default {
             const textResult = await aiService.generateTextReply(incomingText, channelId, message.author.id);
             replyText = textResult.transcript;
           } catch (textError) {
-            console.warn('[FALLBACK] Error generando respuesta de texto:', textError.message);
-            replyText = '¡Uy! Me quedé sin palabras (ni texto). Dame un segundito... hehe';
+            console.warn('[FALLBACK] Error con Gemini Texto:', textError.message);
+            // PASO 4 (PLAN C): FALLBACK A OLLAMA
+            try {
+              const ollamaResult = await aiService.generateOllamaReply(incomingText, channelId, message.author.id);
+              replyText = ollamaResult.transcript;
+              console.log('✅ [FALLBACK] Ollama al rescate.');
+            } catch (ollamaError) {
+              console.error('❌ [FALLBACK] Ollama tampoco respondió:', ollamaError.message);
+              replyText = '¡Uy! Me quedé sin palabras (ni texto). Dame un segundito... hehe';
+            }
           }
 
           await message.reply(replyText).catch(() => { });

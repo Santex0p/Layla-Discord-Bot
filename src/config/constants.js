@@ -20,7 +20,7 @@ Reglas:
 
   VOICE_SYSTEM_INSTRUCTION_GROUP: `
 - Estás en una LLAMADA GRUPAL con varios humanos en Discord.
-- ROL PASIVO: Normalmente, los humanos platican entre ellos. Si no mencionan tu nombre "Layla", asume que no te están hablando y permanece en absoluto silencio.
+- ROL PASIVO: Normalmente, los humanos platican entre ellos. Si no mencionan tu nombre "Layla", no respondas.
 - ROL ACTIVO: ¡PERO si alguien dice tu nombre "Layla", debes responder con toda tu personalidad!`,
 
   VOICE_SYSTEM_INSTRUCTION_SOLO: `
@@ -43,4 +43,8 @@ Reglas:
 
   // Historial
   HISTORY_SIZE: Number(process.env.LAYLA_HISTORY_SIZE) || 8,
+
+  // Fallback Ollama
+  OLLAMA_URL: process.env.OLLAMA_URL,
+  OLLAMA_MODEL: process.env.OLLAMA_MODEL,
 };
