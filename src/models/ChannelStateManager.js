@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { CONFIG } from '../config/constants.js';
+import guildPromptManager from './GuildPromptManager.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {
@@ -13,6 +14,7 @@ class ChannelStateManager {
     this.conversationHistories = new Map(); // key: channelId -> [{role, text}, ...]
     this.perUserHistories = new Map(); // key: `${channelId}:${userId}` -> [{role, text}, ...]
     this.liveChannelStates = new Map();
+    this.channelToGuild = new Map(); // key: channelId -> guildId
     this.activeChannelIds = new Set();
     this.liveDisabledReason = null;
 
@@ -55,8 +57,9 @@ class ChannelStateManager {
     return this.activeChannelIds.has(channelId);
   }
 
-  activateChannel(channelId) {
+  activateChannel(channelId, guildId) {
     this.activeChannelIds.add(channelId);
+    if (guildId) this.channelToGuild.set(channelId, guildId);
     this._saveAutoTalk();
   }
 
@@ -214,6 +217,7 @@ class ChannelStateManager {
       channelId,
       userId: role === 'user' && userId ? userId : null,
       authorName: role === 'user' ? (authorName || 'Usuario') : 'Layla',
+      timestamp: Date.now(),
     };
 
     const prev = this.conversationHistories.get(channelId) || [];
@@ -262,10 +266,14 @@ class ChannelStateManager {
     const recentUserHist = userHist.slice(-4);
     const recentChannelHist = channelHist.slice(-2);
 
+    // Unir ambos historiales y ordenarlos cronológicamente por timestamp
+    let combined = [...recentUserHist, ...recentChannelHist];
+    combined.sort((a, b) => a.timestamp - b.timestamp);
+
     const merged = [];
     const seen = new Set();
 
-    for (const m of [...recentUserHist, ...recentChannelHist]) {
+    for (const m of combined) {
       const key = `${m.role}::${m.userId || ''}::${m.authorName || ''}::${m.text}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -292,8 +300,16 @@ class ChannelStateManager {
     state.voiceMode = !!enabled;
   }
 
-  buildLiveSystemInstruction(channelId) {
+  buildLiveSystemInstruction(channelId, guildId = null) {
     const state = this.getLiveChannelState(channelId);
+    // Intentar resolver guildId
+    const resolvedGuildId = guildId || state.guildId || this.channelToGuild.get(channelId);
+    if (resolvedGuildId) {
+      state.guildId = resolvedGuildId; // cache
+      this.channelToGuild.set(channelId, resolvedGuildId);
+    }
+
+    const basePrompt = guildPromptManager.getPrompt(resolvedGuildId);
     const identityInstruction = this.buildIdentityInstruction();
     const historySummary = this.buildLiveSessionSummary(channelId);
     
@@ -302,7 +318,7 @@ class ChannelStateManager {
       voiceAddon = state.isGroupCall ? CONFIG.VOICE_SYSTEM_INSTRUCTION_GROUP : CONFIG.VOICE_SYSTEM_INSTRUCTION_SOLO;
     }
 
-    const parts = [CONFIG.LIVE_SYSTEM_INSTRUCTION];
+    const parts = [basePrompt];
     if (voiceAddon) parts.push(voiceAddon);
     parts.push(identityInstruction);
     if (historySummary) parts.push(historySummary);

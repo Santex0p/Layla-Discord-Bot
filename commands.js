@@ -55,7 +55,23 @@ const ENDCALL_COMMAND = {
   contexts: [0],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, WACK_COMMAND, TALK_COMMAND, NOTALK_COMMAND, CALL_COMMAND, ENDCALL_COMMAND];
+const SEARCH_COMMAND = {
+  name: 'search',
+  description: 'Le pide a Layla que busque algo en Internet',
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+  options: [
+    {
+      type: 3, // STRING
+      name: 'pregunta',
+      description: 'Lo que quieres que Layla busque en Google',
+      required: true
+    }
+  ]
+};
+
+const ALL_COMMANDS = [TEST_COMMAND, WACK_COMMAND, TALK_COMMAND, NOTALK_COMMAND, CALL_COMMAND, ENDCALL_COMMAND, SEARCH_COMMAND];
 
 console.log('[COMMANDS] Registrando comandos para APP_ID:', process.env.APP_ID || 'no definido');
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);

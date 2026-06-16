@@ -1,6 +1,7 @@
 import stateManager from '../models/ChannelStateManager.js';
 import aiService from '../services/AiService.js';
 import audioService from '../services/AudioService.js';
+import guildPromptManager from '../models/GuildPromptManager.js';
 import {
   resolveMentionsInContent,
   isQuotaError,
@@ -27,9 +28,30 @@ export default {
 
     await message.channel.sendTyping();
 
+    // Auto-registrar servidor en la base de datos de prompts
+    if (message.guild) {
+      guildPromptManager.ensureGuildRegistered(message.guild.id, message.guild.name);
+    }
+
     try {
-      const incomingText = resolveMentionsInContent(message) || message.content;
+      let incomingText = resolveMentionsInContent(message) || message.content;
       const authorName = message.member?.displayName || message.author.username;
+
+      // PROXY VISUAL: Procesar imágenes si existen (Solo si no estamos en Modo Ollama estricto)
+      if (message.attachments.size > 0 && !CONFIG.OLLAMA_ONLY) {
+        for (const attachment of message.attachments.values()) {
+          if (attachment.contentType && attachment.contentType.startsWith('image/')) {
+            // Pedimos a Discord una miniatura WebP de max 800px para ahorrar ~95% de RAM y cuota
+            const optimizedUrl = attachment.url + '?format=webp&width=800';
+            const description = await aiService.describeImage(optimizedUrl);
+            incomingText += ` [Envió una imagen de: ${description}]`;
+          }
+        }
+        incomingText = incomingText.trim();
+      } else if (message.attachments.size > 0 && CONFIG.OLLAMA_ONLY) {
+        incomingText += ` [Adjuntó una imagen, pero no puedo verla en este momento]`;
+        incomingText = incomingText.trim();
+      }
 
       // Guardar el mensaje del usuario en el historial
       stateManager.appendToHistory(channelId, 'user', incomingText, message.author.id, authorName);
@@ -42,7 +64,9 @@ export default {
         // ------------------------------------------------------------------
         // PASO 1: VERIFICAR SI PODEMOS USAR LIVE API
         // ------------------------------------------------------------------
-        if (stateManager.getLiveDisabledReason() || aiService.isLiveQuotaBackoffActive(channelId)) {
+        if (CONFIG.OLLAMA_ONLY) {
+          needsTextFallback = true;
+        } else if (stateManager.getLiveDisabledReason() || aiService.isLiveQuotaBackoffActive(channelId)) {
           console.warn(`🚫 [FALLBACK] Live inactivo (Razón: ${stateManager.getLiveDisabledReason() || 'Cuota excedida'}). Usando fallback de texto.`);
           needsTextFallback = true;
         } else {
@@ -78,19 +102,32 @@ export default {
         // ------------------------------------------------------------------
         if (needsTextFallback) {
           let replyText = '';
-          try {
-            const textResult = await aiService.generateTextReply(incomingText, channelId, message.author.id);
-            replyText = textResult.transcript;
-          } catch (textError) {
-            console.warn('[FALLBACK] Error con Gemini Texto:', textError.message);
-            // PASO 4 (PLAN C): FALLBACK A OLLAMA
+
+          if (!CONFIG.OLLAMA_ONLY) {
             try {
-              const ollamaResult = await aiService.generateOllamaReply(incomingText, channelId, message.author.id);
+              const textResult = await aiService.generateTextReply(incomingText, channelId, message.author.id, message.guild?.id);
+              replyText = textResult.transcript;
+            } catch (textError) {
+              console.warn('[FALLBACK] Error con Gemini Texto:', textError.message);
+              // PASO 4 (PLAN C): FALLBACK A OLLAMA
+              try {
+                const ollamaResult = await aiService.generateOllamaReply(incomingText, channelId, message.author.id, message.guild?.id);
+                replyText = ollamaResult.transcript;
+                console.log('✅ [FALLBACK] Ollama al rescate.');
+              } catch (ollamaError) {
+                console.error('❌ [FALLBACK] Ollama tampoco respondió:', ollamaError.message);
+                replyText = '¡Uy! Me quedé sin palabras (ni texto). Dame un segundito... hehe';
+              }
+            }
+          } else {
+            // MODO OLLAMA ESTRICTO
+            try {
+              const ollamaResult = await aiService.generateOllamaReply(incomingText, channelId, message.author.id, message.guild?.id);
               replyText = ollamaResult.transcript;
-              console.log('✅ [FALLBACK] Ollama al rescate.');
+              console.log('🤖 [OLLAMA ONLY] Ollama procesó el texto localmente.');
             } catch (ollamaError) {
-              console.error('❌ [FALLBACK] Ollama tampoco respondió:', ollamaError.message);
-              replyText = '¡Uy! Me quedé sin palabras (ni texto). Dame un segundito... hehe';
+              console.error('❌ [OLLAMA ONLY] Ollama falló:', ollamaError.message);
+              replyText = '¡Uy! El servidor local de Ollama falló. ¿Está encendido?';
             }
           }
 
@@ -98,8 +135,8 @@ export default {
           if (replyText) stateManager.appendToHistory(channelId, 'assistant', replyText, message.author.id);
 
           // Reconectar
-          if (!stateManager.getLiveDisabledReason()) {
-            aiService.ensureLiveSession(channelId, message.author.id).catch((e) =>
+          if (!stateManager.getLiveDisabledReason() && !CONFIG.OLLAMA_ONLY) {
+            aiService.ensureLiveSession(channelId, message.author.id, message.guild?.id).catch((e) =>
               console.warn(`⚠️ [LIVE] Reconexión en segundo plano falló: ${e.message}`)
             );
           }

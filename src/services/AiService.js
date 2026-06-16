@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { CONFIG } from '../config/constants.js';
+import guildPromptManager from '../models/GuildPromptManager.js';
 import stateManager from '../models/ChannelStateManager.js';
 import { extractTextFromParts, extractInlineAudioData, extractResponseText, isQuotaError } from '../utils/helpers.js';
 import voiceChannelService from './VoiceChannelService.js';
@@ -69,15 +70,17 @@ class AiService {
     this.clearLiveQuotaRetryTimer(channelId);
   }
 
-  async generateTextReply(text, channelId, userId) {
+  async generateTextReply(text, channelId, userId, guildId) {
     const historyContents = stateManager.buildHistoryContents(channelId, userId);
     const contents = historyContents.length ? [...historyContents, text] : text;
+    
+    const basePrompt = guildPromptManager.getPrompt(guildId);
 
     const response = await this.ai.models.generateContent({
       model: CONFIG.TEXT_MODEL,
       contents,
       config: {
-        systemInstruction: CONFIG.LIVE_SYSTEM_INSTRUCTION,
+        systemInstruction: basePrompt,
         safetySettings: [
           { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
           { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
@@ -99,6 +102,33 @@ class AiService {
     };
   }
 
+  async searchInternet(query) {
+    const systemInstruction = `Eres Layla. Se te ha pedido buscar información en Internet. Lee los resultados de búsqueda, responde a la pregunta de forma natural, casual y coqueta (manteniendo tu personalidad sarcástica o bromista si aplica). ¡MANTÉN TU RESPUESTA CORTA Y RESUMIDA (Máximo 2 o 3 párrafos)! ES MUY IMPORTANTE que incluyas los enlaces o URLs de las fuentes al final de tu respuesta para que el usuario pueda hacer clic!`;
+
+    const response = await this.ai.models.generateContent({
+      model: CONFIG.TEXT_MODEL,
+      contents: query,
+      config: {
+        systemInstruction,
+        tools: [{ googleSearch: {} }],
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }
+        ],
+      },
+    });
+
+    const transcript = extractResponseText(response);
+
+    if (!transcript) {
+      throw new Error('Gemini no devolvio texto en la busqueda.');
+    }
+
+    return transcript;
+  }
+
   async checkOllamaConnection() {
     try {
       const controller = new AbortController();
@@ -115,14 +145,15 @@ class AiService {
     }
   }
 
-  async generateOllamaReply(text, channelId, userId) {
+  async generateOllamaReply(text, channelId, userId, guildId) {
     await this.checkOllamaConnection();
 
     const historyContents = stateManager.buildHistoryContents(channelId, userId);
+    const basePrompt = guildPromptManager.getPrompt(guildId);
     
     // Transformar el formato de Gemini (text) al formato de Ollama (messages)
     const messages = [
-      { role: 'system', content: CONFIG.LIVE_SYSTEM_INSTRUCTION }
+      { role: 'system', content: basePrompt }
     ];
 
     for (const msg of historyContents) {
@@ -160,6 +191,42 @@ class AiService {
     }
 
     return { transcript };
+  }
+
+  async describeImage(imageUrl) {
+    try {
+      console.log(`[PROXY VISUAL] Descargando imagen: ${imageUrl}`);
+      const response = await fetch(imageUrl);
+      if (!response.ok) throw new Error(`Error descargando imagen: ${response.statusText}`);
+      
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const base64Data = buffer.toString('base64');
+      const mimeType = response.headers.get('content-type') || 'image/jpeg';
+
+      console.log(`[PROXY VISUAL] Imagen descargada (${buffer.length} bytes). Analizando con gemini-2.5-flash...`);
+
+      const aiResponse = await this.ai.models.generateContent({
+        model: CONFIG.TEXT_MODEL,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: 'Describe qué hay en esta imagen de forma precisa, natural y breve en español (máximo 15 palabras).' },
+              { inlineData: { mimeType, data: base64Data } }
+            ]
+          }
+        ]
+      });
+
+      const description = extractResponseText(aiResponse)?.trim();
+      console.log(`[PROXY VISUAL] Resultado: ${description}`);
+      
+      return description || 'una imagen irreconocible';
+    } catch (error) {
+      console.error(`[PROXY VISUAL] Falló el análisis de imagen: ${error.message}`);
+      return 'una imagen que no pude analizar por un error técnico';
+    }
   }
 
   handleLiveMessage(channelId, message) {
@@ -233,7 +300,7 @@ class AiService {
     }
   }
 
-  async ensureLiveSession(channelId, userId) {
+  async ensureLiveSession(channelId, userId, guildId = null) {
     const state = stateManager.getLiveChannelState(channelId);
 
     if (this.isLiveQuotaBackoffActive(channelId)) {
@@ -247,7 +314,7 @@ class AiService {
     if (state.session) return state.session;
     if (state.connectPromise) return state.connectPromise;
 
-    const liveSystemInstruction = stateManager.buildLiveSystemInstruction(channelId);
+    const liveSystemInstruction = stateManager.buildLiveSystemInstruction(channelId, guildId);
 
     state.connectPromise = this.ai.live.connect({
       model: CONFIG.LIVE_MODEL,

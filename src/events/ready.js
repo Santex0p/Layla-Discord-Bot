@@ -1,5 +1,5 @@
 export default {
-  name: 'ready',
+  name: 'clientReady',
   once: true,
   execute(client) {
     console.log(`✅ [CONEXIÓN] ¡Bot Layla conectado con éxito como ${client.user.tag}!`);

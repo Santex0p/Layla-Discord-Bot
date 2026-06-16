@@ -99,15 +99,8 @@ class VoiceChannelService {
       // Alexa Mode & Context
       alexaMode: false,
       alexaState: 'AWAKE',
-      alexaWakeTimer: null,
-      voskRecognizer: null,
-      transcriptHistory: [],
-      currentPartial: ''
+      alexaWakeTimer: null
     };
-
-    if (voskModel) {
-      sessionData.voskRecognizer = new vosk.Recognizer({ model: voskModel, sampleRate: 16000 });
-    }
 
     this.players.set(voiceChannel.id, sessionData);
 
@@ -132,7 +125,8 @@ class VoiceChannelService {
       // Activar modo voz (añade instrucciones de wake word al prompt)
       stateManager.setVoiceMode(voiceChannel.id, true);
 
-      const session = await aiService.ensureLiveSession(voiceChannel.id, member.user.id);
+      // 5) Conectar AI y registrar la sesión en vivo
+      const session = await aiService.ensureLiveSession(voiceChannel.id, member.user.id, voiceChannel.guild.id);
       sessionData.session = session;
 
       console.log(`✅ [VOICE] Unida a canal de voz ${voiceChannel.id}`);
@@ -260,7 +254,11 @@ class VoiceChannelService {
     if (!sessionData) return;
 
     sessionData.alexaState = 'AWAKE';
-    if (sessionData.voskRecognizer) sessionData.voskRecognizer.reset();
+    for (const [uid, uData] of sessionData.userBuffers) {
+      if (uData.voskRecognizer) uData.voskRecognizer.reset();
+      uData.transcriptHistory = [];
+      uData.currentPartial = '';
+    }
 
     // Conectar Gemini
     if (!sessionData.session) {
@@ -275,9 +273,7 @@ class VoiceChannelService {
     if (sessionData.session) {
       if (!silent && sessionData.alexaMode) {
         console.log(`[VOICE-MODE] 🌟 Layla ha sido llamada (Wake Word). Despertando por 30s.`);
-        const contextStr = sessionData.transcriptHistory.join(' ') + ' ' + sessionData.currentPartial;
-        const contextMsg = contextStr.trim().length > 0 ? ` Contexto de lo que hablaban justo antes de llamarte: "${contextStr.trim()}".` : '';
-        
+        let contextMsg = '';
         try {
           sessionData.session.sendClientContent({
             turns: [{ role: 'user', parts: [{ text: `(Layla, te acaban de llamar por tu nombre. Responde confundida preguntando por qué te llaman. ¡Rápido!${contextMsg})` }] }],
@@ -335,7 +331,9 @@ class VoiceChannelService {
         const stateManager = (await import('../models/ChannelStateManager.js')).default;
         stateManager.resetLiveSession(channelId, { clearHandle: true });
         sessionData.session = null;
-        if (sessionData.voskRecognizer) sessionData.voskRecognizer.reset();
+        for (const [uid, uData] of sessionData.userBuffers) {
+          if (uData.voskRecognizer) uData.voskRecognizer.reset();
+        }
       }, 5000);
     } else {
       console.log(`[VOICE-MODE] 💤 Durmiendo a Layla forzosamente...`);
@@ -343,7 +341,9 @@ class VoiceChannelService {
       const stateManager = (await import('../models/ChannelStateManager.js')).default;
       stateManager.resetLiveSession(channelId, { clearHandle: true });
       sessionData.session = null;
-      if (sessionData.voskRecognizer) sessionData.voskRecognizer.reset();
+      for (const [uid, uData] of sessionData.userBuffers) {
+        if (uData.voskRecognizer) uData.voskRecognizer.reset();
+      }
     }
   }
 
@@ -385,15 +385,12 @@ class VoiceChannelService {
             
             // Reinyectar contexto en 1 a 1
             if (!currentSessionData.alexaMode) {
-              const contextStr = currentSessionData.transcriptHistory.join(' ') + ' ' + currentSessionData.currentPartial;
-              if (contextStr.trim().length > 0) {
-                try {
-                  currentSessionData.session.sendClientContent({
-                    turns: [{ role: 'user', parts: [{ text: `(Nota: Tuviste un reinicio técnico de memoria para ahorrar cuota. Justo antes del reinicio, el humano te estaba diciendo esto: "${contextStr.trim()}". Continúa la plática de forma natural, no menciones el reinicio.)` }] }],
-                    turnComplete: true
-                  });
-                } catch (e) {}
-              }
+              try {
+                currentSessionData.session.sendClientContent({
+                  turns: [{ role: 'user', parts: [{ text: `(Nota: Tuviste un reinicio técnico de memoria para ahorrar cuota. Continúa la plática de forma natural, no menciones el reinicio.)` }] }],
+                  turnComplete: true
+                });
+              } catch (e) {}
             }
           }
         } catch (e) {
@@ -446,10 +443,17 @@ class VoiceChannelService {
 
     // Inicializar buffer del usuario si no existe
     if (!sessionData.userBuffers.has(userId)) {
+      let userVosk = null;
+      if (voskModel) {
+        userVosk = new vosk.Recognizer({ model: voskModel, sampleRate: 16000 });
+      }
       sessionData.userBuffers.set(userId, {
         buffer: Buffer.alloc(0),
         leftover: Buffer.alloc(0),
-        lastAudioTime: Date.now()
+        lastAudioTime: Date.now(),
+        voskRecognizer: userVosk,
+        transcriptHistory: [],
+        currentPartial: ''
       });
     }
 
@@ -498,6 +502,11 @@ class VoiceChannelService {
 
       opusStream.on('close', () => {
         console.log(`[VOICE] opusStream cerrado para ${userId}`);
+        const uData = sessionData.userBuffers.get(userId);
+        if (uData && uData.voskRecognizer) {
+          try { uData.voskRecognizer.free(); } catch(e){}
+        }
+        sessionData.userBuffers.delete(userId);
         sessionData.activeListeners.delete(userId);
         this._updateHumanCount(channelId);
 
@@ -546,12 +555,47 @@ class VoiceChannelService {
         const chunk = userData.buffer.subarray(0, frameSize);
         userData.buffer = userData.buffer.subarray(frameSize);
 
-        // Mezcla aditiva con clipping (como sumar ondas en la vida real)
+        // Mezcla aditiva con clipping (para enviarlo mezclado a Gemini)
         for (let i = 0; i < frameSize; i += 2) {
           const existing = mixedBuffer.readInt16LE(i);
           const incoming = chunk.readInt16LE(i);
           const sum = Math.max(-32768, Math.min(32767, existing + incoming));
           mixedBuffer.writeInt16LE(sum, i);
+        }
+
+        // PROCESAMIENTO DE TEXTO (VOSK) Y WAKE WORD INDIVIDUAL POR USUARIO
+        if (sessionData.alexaMode && userData.voskRecognizer) {
+          let wakeWordDetected = false;
+          
+          if (userData.voskRecognizer.acceptWaveform(chunk)) {
+            const result = userData.voskRecognizer.result();
+            if (result.text && result.text.length > 0) {
+              userData.transcriptHistory.push(result.text);
+              if (userData.transcriptHistory.length > 5) userData.transcriptHistory.shift();
+            }
+            if (result.text.toLowerCase().includes('layla') || result.text.toLowerCase().includes('laila') || result.text.toLowerCase().includes('ley')) {
+              wakeWordDetected = true;
+            }
+            userData.currentPartial = '';
+          } else {
+            const partial = userData.voskRecognizer.partialResult();
+            if (partial.partial && partial.partial.length > 0) {
+              userData.currentPartial = partial.partial;
+            }
+            if (partial.partial.toLowerCase().includes('layla') || partial.partial.toLowerCase().includes('laila') || partial.partial.toLowerCase().includes('ley')) {
+              wakeWordDetected = true;
+            }
+          }
+          
+          if (wakeWordDetected) {
+            console.log(`[VOSK] Wake Word detectado localmente del usuario ${userId}!`);
+            if (sessionData.alexaState === 'ASLEEP') {
+              this._wakeUpAlexa(channelId);
+            } else {
+              this._resetAlexaWakeTimer(channelId);
+            }
+            userData.voskRecognizer.reset();
+          }
         }
       }
     }
@@ -559,43 +603,6 @@ class VoiceChannelService {
     if (anyoneActive) {
       sessionData.lastMixedAudioTime = Date.now();
       sessionData.silenceLogCounter = 0;
-      
-      // --- PROCESAMIENTO DE TEXTO (VOSK) Y WAKE WORD ---
-      if (sessionData.voskRecognizer) {
-        let wakeWordDetected = false;
-        
-        if (sessionData.voskRecognizer.acceptWaveform(mixedBuffer)) {
-          const result = sessionData.voskRecognizer.result();
-          if (result.text && result.text.length > 0) {
-            sessionData.transcriptHistory.push(result.text);
-            if (sessionData.transcriptHistory.length > 5) {
-              sessionData.transcriptHistory.shift();
-            }
-          }
-          if (result.text.toLowerCase().includes('layla') || result.text.toLowerCase().includes('laila') || result.text.toLowerCase().includes('ley')) {
-            wakeWordDetected = true;
-          }
-          sessionData.currentPartial = '';
-        } else {
-          const partial = sessionData.voskRecognizer.partialResult();
-          if (partial.partial && partial.partial.length > 0) {
-            sessionData.currentPartial = partial.partial;
-          }
-          if (partial.partial.toLowerCase().includes('layla') || partial.partial.toLowerCase().includes('laila') || partial.partial.toLowerCase().includes('ley')) {
-            wakeWordDetected = true;
-          }
-        }
-        
-        if (wakeWordDetected && sessionData.alexaMode) {
-          console.log(`[VOSK] Wake Word detectado localmente!`);
-          if (sessionData.alexaState === 'ASLEEP') {
-            this._wakeUpAlexa(channelId);
-          } else {
-            this._resetAlexaWakeTimer(channelId);
-          }
-          sessionData.voskRecognizer.reset();
-        }
-      }
       
       // Si está dormida, NO enviamos audio a Gemini. Solo consumió Vosk.
       if (sessionData.alexaMode && sessionData.alexaState === 'ASLEEP') {

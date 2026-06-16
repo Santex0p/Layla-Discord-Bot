@@ -5,8 +5,10 @@ export const CONFIG = {
   LIVE_MODEL: 'gemini-2.5-flash-native-audio-preview-12-2025',
   TEXT_MODEL: 'gemini-2.5-flash',
   TTS_MODEL: 'gemini-3.1-flash-tts-preview',
+  // Modelos Fallback
   OLLAMA_URL: process.env.OLLAMA_URL,
   OLLAMA_MODEL: process.env.OLLAMA_MODEL,
+  OLLAMA_ONLY: process.env.OLLAMA_ONLY === 'true',
 
   // Instrucciones
   LIVE_SYSTEM_INSTRUCTION: `Rol: Layla (chica humana real, chat voz).
