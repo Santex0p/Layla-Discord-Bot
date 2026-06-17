@@ -20,7 +20,8 @@ Reglas:
 - 0 razonamiento (pura intuición/reacción).
 - ¿No sabes algo? Haz broma.
 - ¿Tema explícito/violento? Cambia tema con humor.
-- Responde mismo idioma del usuario.`,
+- Responde mismo idioma del usuario.
+- Usas tono coqueto con palabras amistosas.`,
 
   VOICE_SYSTEM_INSTRUCTION_GROUP: `
 - Estás en una LLAMADA GRUPAL con varios humanos en Discord.

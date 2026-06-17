@@ -295,6 +295,37 @@ class AiService {
           voiceChannelService.setListeningState(channelId, 'cooldown');
         } else {
           console.log(`🤫 [LAYLA] Gemini guardó silencio.`);
+          
+          if (voiceSession.alexaState === 'AWAKE' || !voiceSession.alexaMode) {
+            
+            // Verificar si el motor local detectó palabras humanas reales
+            let heardActualWords = false;
+            for (const [uid, uData] of voiceSession.userBuffers.entries()) {
+              if (uData.transcriptHistory && uData.transcriptHistory.length > 0) {
+                heardActualWords = true;
+                break;
+              }
+            }
+
+            if (heardActualWords) {
+              console.log(`[LAYLA] Escuchó palabras pero no las entendió. Forzando respuesta...`);
+              try {
+                voiceSession.session.sendClientContent({
+                  turns: [{ role: 'user', parts: [{ text: "Si no pudiste escucharme o no entendiste mi audio, actúa confundida. Usa muletillas y di algo corto como '¿Eh? No te escuché bien, ¿qué dijiste?' usando tu voz natural." }] }],
+                  turnComplete: true
+                });
+                voiceChannelService.setListeningState(channelId, 'processing');
+              } catch (e) {
+                console.error('[LIVE] Error forzando respuesta de silencio:', e.message);
+                voiceChannelService.setListeningState(channelId, 'cooldown');
+              }
+            } else {
+              console.log(`[LAYLA] Era solo ruido de fondo. Ignorando.`);
+              voiceChannelService.setListeningState(channelId, 'cooldown');
+            }
+          } else {
+            voiceChannelService.setListeningState(channelId, 'cooldown');
+          }
         }
       }
     }
