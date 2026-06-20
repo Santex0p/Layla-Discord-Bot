@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './utils/dashboardServer.js'; // Iniciar servidor web, API y captura de logs
 import { Client, GatewayIntentBits } from 'discord.js';
 import readyEvent from './events/ready.js';
 import messageCreateEvent from './events/messageCreate.js';

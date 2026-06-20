@@ -66,6 +66,25 @@ class GuildPromptManager {
     const info = this.prompts.get(guildId);
     return info.prompt || CONFIG.LIVE_SYSTEM_INSTRUCTION;
   }
+
+  setPrompt(guildId, newPrompt) {
+    if (!guildId || !newPrompt) return false;
+    
+    // Si el servidor existe, lo actualizamos. Si no, lo creamos.
+    if (this.prompts.has(guildId)) {
+      const info = this.prompts.get(guildId);
+      info.prompt = newPrompt;
+    } else {
+      this.prompts.set(guildId, {
+        serverName: 'Servidor Desconocido (Añadido Web)',
+        prompt: newPrompt
+      });
+    }
+    
+    this._savePrompts();
+    console.log(`[GuildPromptManager] Prompt actualizado para servidor: ${guildId}`);
+    return true;
+  }
 }
 
 export default new GuildPromptManager();

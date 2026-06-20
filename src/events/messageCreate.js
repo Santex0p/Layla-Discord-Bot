@@ -2,6 +2,7 @@ import stateManager from '../models/ChannelStateManager.js';
 import aiService from '../services/AiService.js';
 import audioService from '../services/AudioService.js';
 import guildPromptManager from '../models/GuildPromptManager.js';
+import globalSettingsManager from '../models/GlobalSettingsManager.js';
 import {
   resolveMentionsInContent,
   isQuotaError,
@@ -23,7 +24,13 @@ export default {
 
     const channelId = message.channel.id;
     if (!stateManager.isChannelActive(channelId)) {
-      return; // Ignorar si el canal no está activado
+      // Verificar si la mencionaron y el ajuste global está activado
+      const respondOnMention = globalSettingsManager.get('RESPOND_ON_MENTION');
+      const isMentioned = message.mentions.has(message.client.user.id);
+      
+      if (!isMentioned || !respondOnMention) {
+        return; // Ignorar por completo
+      }
     }
 
     await message.channel.sendTyping();
