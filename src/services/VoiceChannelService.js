@@ -111,6 +111,10 @@ class VoiceChannelService {
         sessionData.audioStream.destroy();
         sessionData.audioStream = null;
       }
+      // Cuando termina de hablar físicamente, abrir su micrófono si estaba pendiente (solo si el turno ya terminó = cooldown)
+      if (sessionData.listeningState === 'cooldown') {
+        this.setListeningState(voiceChannel.id, 'listening');
+      }
     });
 
     // Esperar a que la conexion UDP este lista
@@ -229,7 +233,7 @@ class VoiceChannelService {
     console.log(`[VOICE-MODE] Revisando humanos: ${humanCount}`);
 
     const state = stateManager.getLiveChannelState(channelId);
-    
+
     if (humanCount >= 2 && !sessionData.alexaMode) {
       console.log(`[VOICE-MODE] 👥 2+ humanos detectados. Activando Sistema ALEXA (En Silencio).`);
       sessionData.alexaMode = true;
@@ -382,7 +386,7 @@ class VoiceChannelService {
           if (currentSessionData) {
             currentSessionData.session = newSession;
             console.log(`♻️ [VOICE] Ciclo de llamada reiniciado para canal ${channelId}.`);
-            
+
             // Reinyectar contexto en 1 a 1
             if (!currentSessionData.alexaMode) {
               try {
@@ -390,7 +394,7 @@ class VoiceChannelService {
                   turns: [{ role: 'user', parts: [{ text: `(Nota: Tuviste un reinicio técnico de memoria para ahorrar cuota. Continúa la plática de forma natural, no menciones el reinicio.)` }] }],
                   turnComplete: true
                 });
-              } catch (e) {}
+              } catch (e) { }
             }
           }
         } catch (e) {
@@ -420,13 +424,12 @@ class VoiceChannelService {
     }
 
     if (newState === 'cooldown') {
-      // Después de 1.5s de cooldown, volver a escuchar
-      sessionData.cooldownTimer = setTimeout(() => {
-        sessionData.cooldownTimer = null;
-        if (this.players.has(channelId)) {
-          this.setListeningState(channelId, 'listening');
-        }
-      }, 1500);
+      // si ya terminó de hablar físicamente. Si sigue reproduciendo audio, esperar.
+      if (sessionData.isPlaying) {
+        console.log(`[VOICE] Esperando a que termine de hablar físicamente para volver a escuchar...`);
+      } else if (this.players.has(channelId)) {
+        this.setListeningState(channelId, 'listening');
+      }
     }
   }
 
@@ -504,7 +507,7 @@ class VoiceChannelService {
         console.log(`[VOICE] opusStream cerrado para ${userId}`);
         const uData = sessionData.userBuffers.get(userId);
         if (uData && uData.voskRecognizer) {
-          try { uData.voskRecognizer.free(); } catch(e){}
+          try { uData.voskRecognizer.free(); } catch (e) { }
         }
         sessionData.userBuffers.delete(userId);
         sessionData.activeListeners.delete(userId);
@@ -566,7 +569,7 @@ class VoiceChannelService {
         // PROCESAMIENTO DE TEXTO (VOSK) Y WAKE WORD INDIVIDUAL POR USUARIO
         if (sessionData.alexaMode && userData.voskRecognizer) {
           let wakeWordDetected = false;
-          
+
           if (userData.voskRecognizer.acceptWaveform(chunk)) {
             const result = userData.voskRecognizer.result();
             if (result.text && result.text.length > 0) {
@@ -586,7 +589,7 @@ class VoiceChannelService {
               wakeWordDetected = true;
             }
           }
-          
+
           if (wakeWordDetected) {
             console.log(`[VOSK] Wake Word detectado localmente del usuario ${userId}!`);
             if (sessionData.alexaState === 'ASLEEP') {
@@ -603,7 +606,7 @@ class VoiceChannelService {
     if (anyoneActive) {
       sessionData.lastMixedAudioTime = Date.now();
       sessionData.silenceLogCounter = 0;
-      
+
       // Si está dormida, NO enviamos audio a Gemini. Solo consumió Vosk.
       if (sessionData.alexaMode && sessionData.alexaState === 'ASLEEP') {
         return;
@@ -619,7 +622,7 @@ class VoiceChannelService {
     } else {
       // VAD: Enviar 2 segundos de silencio tras el último audio, luego parar
       if (!sessionData.session || (sessionData.alexaMode && sessionData.alexaState === 'ASLEEP')) return;
-      
+
       const timeSinceLastAudio = Date.now() - sessionData.lastMixedAudioTime;
       if (timeSinceLastAudio >= 100 && timeSinceLastAudio <= 2000) {
         sessionData.silenceLogCounter++;
@@ -662,6 +665,9 @@ class VoiceChannelService {
     if (sessionData.voskRecognizer) sessionData.voskRecognizer.free();
     sessionData.activeListeners.clear();
     sessionData.userBuffers.clear();
+
+    // Borrar completamente la sesión de Gemini
+    stateManager.resetLiveSession(channelId, { clearHandle: true });
 
     this.players.delete(channelId);
     console.log(`[VOICE] Recursos limpiados para canal ${channelId}.`);

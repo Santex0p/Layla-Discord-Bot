@@ -81,7 +81,7 @@ export default {
           // PASO 2: INTENTAR SESIÓN LIVE
           // ------------------------------------------------------------------
           try {
-            voiceResponse = await aiService.enqueueLiveTurn(incomingText, channelId, message.author.id, authorName);
+            voiceResponse = await aiService.enqueueLiveTurn(incomingText, channelId, message.author.id, authorName, message.guild?.id);
           } catch (error) {
             const isQuota = isQuotaError(error);
             const isMissingAudio = isMissingAudioError(error);

@@ -424,6 +424,28 @@
       background: #4b5563;
     }
 
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.5);
+    }
+
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.4);
+      color: white;
+    }
+
+    .btn-warning {
+      background: rgba(251, 191, 36, 0.2);
+      color: var(--warning);
+      border: 1px solid rgba(251, 191, 36, 0.5);
+    }
+
+    .btn-warning:hover {
+      background: rgba(251, 191, 36, 0.4);
+      color: white;
+    }
+
     .btn-primary {
       background: var(--accent);
       color: white;
@@ -488,7 +510,7 @@
       height: 26px;
     }
 
-    .switch input { 
+    .switch input {
       opacity: 0;
       width: 0;
       height: 0;
@@ -497,7 +519,10 @@
     .slider {
       position: absolute;
       cursor: pointer;
-      top: 0; left: 0; right: 0; bottom: 0;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
       background-color: var(--border-color);
       transition: .3s;
       border-radius: 34px;
@@ -515,12 +540,12 @@
       border-radius: 50%;
     }
 
-    input:checked + .slider {
+    input:checked+.slider {
       background-color: var(--accent);
       box-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
     }
 
-    input:checked + .slider:before {
+    input:checked+.slider:before {
       transform: translateX(24px);
     }
   </style>
@@ -532,7 +557,7 @@
   <aside class="sidebar">
     <div class="profile">
       <div class="profile-img">
-        <img src="/img/layla-avatar.gif" alt="Layla Avatar" id="layla-avatar"
+        <img src="/img/layla-avatar.png" alt="Layla Avatar" id="layla-avatar"
           onerror="this.src='https://i.imgur.com/8QG9gXv.png'">
       </div>
       <h2>Layla Core</h2>
@@ -582,7 +607,7 @@
       <div class="header-bar">
         <h1>Ajustes Globales</h1>
       </div>
-      
+
       <div class="setting-row">
         <div class="setting-info">
           <h3>Despertar por Mención</h3>
@@ -612,9 +637,33 @@
           Los cambios se aplicarán al instante.</p>
         <textarea id="prompt-textarea" spellcheck="false"></textarea>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-        <button class="btn btn-primary" onclick="savePrompt()">Guardar Cambios</button>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <div>
+          <button class="btn btn-warning" onclick="resetDefaultPrompt()">Restablecer Base</button>
+          <button class="btn btn-danger" onclick="leaveServer()" style="margin-left: 8px;">Expulsar Layla</button>
+        </div>
+        <div>
+          <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+          <button class="btn btn-primary" onclick="savePrompt()">Guardar Cambios</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CONFIRMAR EXPULSIÓN -->
+  <div class="modal-overlay" id="confirm-modal">
+    <div class="modal" style="max-width: 400px; text-align: center;">
+      <div class="modal-body" style="padding-top: 32px;">
+        <div style="font-size: 3rem; margin-bottom: 16px;">⚠️</div>
+        <h2 style="margin-bottom: 16px;">¿Expulsar a Layla?</h2>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">
+          ¿Estás 100% seguro de que quieres expulsar a Layla de este servidor?
+          Tendrás que volver a invitarla manualmente con el enlace de Discord si te arrepientes.
+        </p>
+      </div>
+      <div class="modal-footer" style="justify-content: center;">
+        <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancelar</button>
+        <button class="btn btn-danger" onclick="executeLeaveServer()">Sí, expulsarla</button>
       </div>
     </div>
   </div>
@@ -695,6 +744,50 @@
         if (res.ok) showToast();
       } catch (e) {
         alert('Error al guardar ajuste');
+      }
+    }
+
+    // --- ACCIONES DEL MODAL ---
+    async function resetDefaultPrompt() {
+      try {
+        const res = await fetch('/api/default-prompt');
+        const data = await res.json();
+        if (data.prompt) {
+          document.getElementById('prompt-textarea').value = data.prompt;
+        }
+      } catch (e) {
+        alert('Error obteniendo el prompt por defecto');
+      }
+    }
+
+    async function leaveServer() {
+      if (!currentEditingGuild) return;
+      // Mostrar modal personalizado en vez del confirm() nativo
+      document.getElementById('confirm-modal').style.display = 'flex';
+    }
+
+    function closeConfirmModal() {
+      document.getElementById('confirm-modal').style.display = 'none';
+    }
+
+    async function executeLeaveServer() {
+      if (!currentEditingGuild) return;
+      closeConfirmModal();
+
+      try {
+        const res = await fetch(`/api/servers/${currentEditingGuild}/leave`, {
+          method: 'POST'
+        });
+        if (res.ok) {
+          closeModal();
+          loadServers(); // Recargar lista
+          showToast("Layla abandonó el servidor exitosamente");
+        } else {
+          const data = await res.json();
+          alert('Error: ' + data.error);
+        }
+      } catch (e) {
+        alert('Error expulsando al bot');
       }
     }
 

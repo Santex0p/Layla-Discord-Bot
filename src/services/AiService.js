@@ -73,7 +73,7 @@ class AiService {
   async generateTextReply(text, channelId, userId, guildId) {
     const historyContents = stateManager.buildHistoryContents(channelId, userId);
     const contents = historyContents.length ? [...historyContents, text] : text;
-    
+
     const basePrompt = guildPromptManager.getPrompt(guildId);
 
     const response = await this.ai.models.generateContent({
@@ -134,10 +134,10 @@ class AiService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
       const url = new URL('/api/tags', CONFIG.OLLAMA_URL).toString();
-      
+
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) throw new Error(`Ollama HTTP Error: ${response.status}`);
       return true;
     } catch (e) {
@@ -150,7 +150,7 @@ class AiService {
 
     const historyContents = stateManager.buildHistoryContents(channelId, userId);
     const basePrompt = guildPromptManager.getPrompt(guildId);
-    
+
     // Transformar el formato de Gemini (text) al formato de Ollama (messages)
     const messages = [
       { role: 'system', content: basePrompt }
@@ -165,7 +165,7 @@ class AiService {
         messages.push({ role: 'user', content: msg });
       }
     }
-    
+
     messages.push({ role: 'user', content: text });
 
     const url = new URL('/api/chat', CONFIG.OLLAMA_URL).toString();
@@ -198,7 +198,7 @@ class AiService {
       console.log(`[PROXY VISUAL] Descargando imagen: ${imageUrl}`);
       const response = await fetch(imageUrl);
       if (!response.ok) throw new Error(`Error descargando imagen: ${response.statusText}`);
-      
+
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const base64Data = buffer.toString('base64');
@@ -221,7 +221,7 @@ class AiService {
 
       const description = extractResponseText(aiResponse)?.trim();
       console.log(`[PROXY VISUAL] Resultado: ${description}`);
-      
+
       return description || 'una imagen irreconocible';
     } catch (error) {
       console.error(`[PROXY VISUAL] Falló el análisis de imagen: ${error.message}`);
@@ -275,9 +275,21 @@ class AiService {
       }
     }
 
-    if (serverContent.interrupted && state.pendingTurn) {
-      stateManager.rejectPendingLiveTurn(channelId, new Error('Gemini interrumpio el turno actual.'));
-      // Volver a escuchar tras interrupción
+    if (serverContent.interrupted) {
+      // SOLO honrar la interrupción si Layla está ESCUCHANDO.
+      // Si está en 'responding' (sorda), ignorar — es audio viejo en el buffer de Gemini.
+      if (isVoice && voiceSession && voiceSession.listeningState === 'responding') {
+        console.log(`🛡️ [VOICE] Interrupción de Gemini IGNORADA — Layla está hablando (sorda).`);
+        // Gemini no enviará turnComplete tras interrupted, así que transitamos a 'cooldown'
+        // para que cuando el reproductor termine el audio buffereado, el evento Idle abra sus oídos.
+        voiceChannelService.setListeningState(channelId, 'cooldown');
+        return;
+      }
+
+      if (state.pendingTurn) {
+        stateManager.rejectPendingLiveTurn(channelId, new Error('Gemini interrumpio el turno actual.'));
+      }
+      // Volver a escuchar tras interrupción real
       if (isVoice && voiceSession) {
         voiceChannelService.setListeningState(channelId, 'cooldown');
       }
@@ -288,16 +300,16 @@ class AiService {
       if (state.pendingTurn) {
         stateManager.finalizePendingLiveTurn(channelId);
       }
-      
+
       if (isVoice && voiceSession) {
         if (voiceSession.listeningState === 'responding') {
           console.log(`💬 [LAYLA] Turno completado tras haber hablado.`);
           voiceChannelService.setListeningState(channelId, 'cooldown');
         } else {
           console.log(`🤫 [LAYLA] Gemini guardó silencio.`);
-          
+
           if (voiceSession.alexaState === 'AWAKE' || !voiceSession.alexaMode) {
-            
+
             // Verificar si el motor local detectó palabras humanas reales
             let heardActualWords = false;
             for (const [uid, uData] of voiceSession.userBuffers.entries()) {
@@ -374,12 +386,32 @@ class AiService {
 
           let clearHandle = false;
           if (event.code === 1008) {
-            console.warn(`⚠️ [LIVE] Codigo 1008 detectado. Probablemente la llave (handle) caduco. Descartando la llave en lugar de apagar el modo Live.`);
+            console.warn(`⚠️ [LIVE] Codigo 1008 detectado. Probablemente la llave (handle) caduco. Descartando la llave.`);
             clearHandle = true;
           }
 
           stateManager.resetLiveSession(channelId, { clearHandle });
           stateManager.rejectPendingLiveTurn(channelId, new Error(`La sesion Live API se cerro durante el turno (codigo ${event.code}: ${event.reason || 'sin detalle'}).`));
+
+          // Auto-reconectar si hay una llamada de voz activa en este canal
+          const voiceSession = voiceChannelService.players.get(channelId);
+          if (voiceSession) {
+            console.log(`🔄 [VOICE] Sesión Gemini caída durante llamada activa. Reconectando en 2s...`);
+            setTimeout(async () => {
+              if (!voiceChannelService.players.has(channelId)) return; // Ya colgó
+              try {
+                const newSession = await this.ensureLiveSession(channelId, null, voiceSession.guildId);
+                const currentData = voiceChannelService.players.get(channelId);
+                if (currentData) {
+                  currentData.session = newSession;
+                  voiceChannelService.setListeningState(channelId, 'listening');
+                  console.log(`✅ [VOICE] Sesión Gemini reconectada exitosamente.`);
+                }
+              } catch (e) {
+                console.error(`❌ [VOICE] Error al reconectar sesión:`, e.message);
+              }
+            }, 2000);
+          }
         },
       },
     }).then((session) => {
@@ -400,15 +432,15 @@ class AiService {
   async reconnectLiveSession(channelId) {
     const state = stateManager.getLiveChannelState(channelId);
     console.log(`[LIVE] Forzando reconexión cíclica para canal ${channelId} (borrando contexto de memoria)...`);
-    
+
     // Matar sesión actual sin handle
     stateManager.resetLiveSession(channelId, { clearHandle: true });
-    
+
     // Crear una nueva
     return this.ensureLiveSession(channelId);
   }
 
-  enqueueLiveTurn(text, channelId, userId, authorName) {
+  enqueueLiveTurn(text, channelId, userId, authorName, guildId = null) {
     const state = stateManager.getLiveChannelState(channelId);
 
     state.turnQueue = state.turnQueue.catch(() => { }).then(async () => {
@@ -427,7 +459,7 @@ class AiService {
         stateManager.resetLiveSession(channelId, { clearHandle: true });
       }
 
-      const session = await this.ensureLiveSession(channelId, userId);
+      const session = await this.ensureLiveSession(channelId, userId, guildId);
 
       return new Promise((resolve, reject) => {
         state.pendingTurn = {

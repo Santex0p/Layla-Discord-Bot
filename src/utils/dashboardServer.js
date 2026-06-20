@@ -4,6 +4,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import guildPromptManager from '../models/GuildPromptManager.js';
 import globalSettingsManager from '../models/GlobalSettingsManager.js';
+import stateManager from '../models/ChannelStateManager.js';
 
 // Configuración
 const PORT = 8080;
@@ -12,6 +13,11 @@ const PUBLIC_DIR = path.join(process.cwd(), 'src', 'public');
 // Event Emitter para los logs en vivo
 class LogEmitter extends EventEmitter { }
 const logEmitter = new LogEmitter();
+
+let discordClient = null;
+export function setDiscordClient(client) {
+  discordClient = client;
+}
 
 // Buffer circular para los últimos 100 logs (para enviar al conectar)
 const logHistory = [];
@@ -143,6 +149,15 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API GET: Obtener prompt por defecto
+  if (req.url === '/api/default-prompt' && req.method === 'GET') {
+    import('../config/constants.js').then(({ CONFIG }) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ prompt: CONFIG.LIVE_SYSTEM_INSTRUCTION }));
+    });
+    return;
+  }
+
   // API GET: Obtener lista de servidores y sus prompts
   if (req.url === '/api/servers' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -180,6 +195,36 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
       }
     });
+    return;
+  }
+
+  // API POST: Expulsar al bot de un servidor
+  if (req.url.startsWith('/api/servers/') && req.url.endsWith('/leave') && req.method === 'POST') {
+    const guildId = req.url.split('/')[3];
+    if (discordClient) {
+      const guild = discordClient.guilds.cache.get(guildId);
+      if (guild) {
+        guild.leave()
+          .then(() => {
+            console.log(`[DASHBOARD] Layla abandonó el servidor ${guildId}`);
+            guildPromptManager.prompts.delete(guildId); // Borrar config
+            guildPromptManager._savePrompts();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+          })
+          .catch(e => {
+            console.error(`[DASHBOARD] Error al abandonar servidor ${guildId}:`, e);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'No se pudo abandonar el servidor' }));
+          });
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'El bot no se encuentra en ese servidor' }));
+      }
+    } else {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Cliente de Discord no disponible' }));
+    }
     return;
   }
 

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import './utils/dashboardServer.js'; // Iniciar servidor web, API y captura de logs
+import { setDiscordClient } from './utils/dashboardServer.js'; // Iniciar servidor web, API y captura de logs
 import { Client, GatewayIntentBits } from 'discord.js';
 import readyEvent from './events/ready.js';
 import messageCreateEvent from './events/messageCreate.js';
@@ -15,6 +15,9 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates,
   ],
 });
+
+// Pasar el cliente al servidor web para que pueda expulsar al bot si se pide
+setDiscordClient(client);
 
 // Registrar eventos
 const events = [readyEvent, messageCreateEvent, interactionCreateEvent];

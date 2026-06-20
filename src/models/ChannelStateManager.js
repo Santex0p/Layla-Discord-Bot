@@ -344,6 +344,17 @@ class ChannelStateManager {
     this.conversationHistories.clear();
     this.perUserHistories.clear();
   }
+
+  resetSessionsForGuild(guildId) {
+    if (!guildId) return;
+    for (const [channelId, state] of this.liveChannelStates.entries()) {
+      const stateGuildId = state.guildId || this.channelToGuild.get(channelId);
+      if (stateGuildId === guildId) {
+        console.log(`[STATE] Forzando reinicio de sesión para canal ${channelId} por cambio de prompt.`);
+        this.resetLiveSession(channelId, { clearHandle: true });
+      }
+    }
+  }
 }
 
 // Exportamos un singleton para mantener un único estado de la app
