@@ -548,13 +548,48 @@
     input:checked+.slider:before {
       transform: translateX(24px);
     }
+
+    /* --- AUTH VIEWS --- */
+    .auth-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      width: 100%;
+      background: var(--bg-color);
+      z-index: 100;
+    }
+    .auth-box {
+      background: var(--card-bg);
+      padding: 40px;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .auth-box h1 { margin-bottom: 24px; font-weight: 600; }
+    .auth-box input {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 16px;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border-color);
+      color: white;
+      border-radius: 8px;
+      font-size: 1rem;
+    }
+    .auth-box button { width: 100%; padding: 12px; font-size: 1rem; }
+    .hidden { display: none !important; }
   </style>
 </head>
 
 <body>
 
   <!-- SIDEBAR -->
-  <aside class="sidebar">
+  <aside class="sidebar hidden" id="sidebar">
     <div class="profile">
       <div class="profile-img">
         <img src="/img/layla-avatar.png" alt="Layla Avatar" id="layla-avatar"
@@ -575,11 +610,34 @@
       <div class="nav-item" data-target="view-settings">
         ⚙️ Ajustes Globales
       </div>
+      <div class="nav-item" onclick="doLogout()" style="margin-top: auto; color: var(--danger);">
+        🚪 Cerrar Sesión
+      </div>
     </nav>
   </aside>
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
+
+    <!-- VISTA: LOGIN -->
+    <div id="view-login" class="view auth-container">
+      <div class="auth-box">
+        <h1>Iniciar Sesión</h1>
+        <p style="margin-bottom: 20px; color: var(--text-muted);">Bienvenido a Layla Core</p>
+        <input type="password" id="login-password" placeholder="Contraseña maestra">
+        <button class="btn btn-primary" onclick="doLogin()">Ingresar</button>
+      </div>
+    </div>
+
+    <!-- VISTA: REGISTRO -->
+    <div id="view-register" class="view auth-container">
+      <div class="auth-box">
+        <h1>Configuración Inicial</h1>
+        <p style="margin-bottom: 20px; color: var(--warning);">Crea una contraseña maestra. Solo se pedirá esta vez.</p>
+        <input type="password" id="register-password" placeholder="Nueva contraseña">
+        <button class="btn btn-warning" onclick="doRegister()">Registrar Admin</button>
+      </div>
+    </div>
 
     <!-- VISTA: SERVIDORES -->
     <div id="view-servers" class="view active">
@@ -675,19 +733,63 @@
   <script>
     // --- NAVEGACION ---
     const navItems = document.querySelectorAll('.nav-item');
-    const views = document.querySelectorAll('.view');
+    function switchView(targetId) {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.getElementById(targetId).classList.add('active');
+    }
 
-    navItems.forEach(item => {
+    // --- LOGIC: TABS ---
+    document.querySelectorAll('.nav-item[data-target]').forEach(item => {
       item.addEventListener('click', () => {
-        navItems.forEach(n => n.classList.remove('active'));
-        views.forEach(v => v.classList.remove('active'));
-
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         item.classList.add('active');
-        document.getElementById(item.dataset.target).classList.add('active');
+        switchView(item.getAttribute('data-target'));
       });
     });
 
-    // --- API SERVIDORES ---
+    // --- LOGIC: AUTH ---
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/status');
+        const data = await res.json();
+        
+        document.getElementById('sidebar').classList.toggle('hidden', !data.isAuth);
+        
+        if (!data.hasAdmin) {
+          switchView('view-register');
+        } else if (!data.isAuth) {
+          switchView('view-login');
+        } else {
+          switchView('view-servers');
+          loadServers();
+          loadSettings();
+          connectSSE();
+        }
+      } catch(e) {
+        console.error("Auth check failed", e);
+      }
+    }
+
+    async function doLogin() {
+      const pass = document.getElementById('login-password').value;
+      const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: pass }) });
+      if(res.ok) { window.location.reload(); }
+      else { const d = await res.json(); alert(d.error || 'Login failed'); }
+    }
+
+    async function doRegister() {
+      const pass = document.getElementById('register-password').value;
+      const res = await fetch('/api/auth/register', { method: 'POST', body: JSON.stringify({ password: pass }) });
+      if(res.ok) { window.location.reload(); }
+      else { const d = await res.json(); alert(d.error || 'Register failed'); }
+    }
+
+    async function doLogout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.reload();
+    }
+
+    // --- ACCIONES DEL MODAL ---
     let currentEditingGuild = null;
 
     async function loadServers() {
@@ -894,9 +996,7 @@
     }
 
     // Inicializar
-    loadServers();
-    loadSettings();
-    connectSSE();
+    checkAuth();
   </script>
 </body>
 

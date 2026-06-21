@@ -37,12 +37,9 @@ class ChannelStateManager {
   }
 
   _saveAutoTalk() {
-    try {
-      const list = Array.from(this.activeChannelIds);
-      fs.writeFileSync(AUTOTALK_FILE, JSON.stringify(list, null, 2), 'utf8');
-    } catch (e) {
-      console.error(`[STATE] Error guardando autotalk.json:`, e.message);
-    }
+    const list = Array.from(this.activeChannelIds);
+    fs.promises.writeFile(AUTOTALK_FILE, JSON.stringify(list, null, 2), 'utf8')
+      .catch(e => console.error(`[STATE] Error guardando autotalk.json:`, e.message));
   }
 
   getLiveDisabledReason() {

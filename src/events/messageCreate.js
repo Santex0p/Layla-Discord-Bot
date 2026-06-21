@@ -35,11 +35,6 @@ export default {
 
     await message.channel.sendTyping();
 
-    // Auto-registrar servidor en la base de datos de prompts
-    if (message.guild) {
-      guildPromptManager.ensureGuildRegistered(message.guild.id, message.guild.name);
-    }
-
     try {
       let incomingText = resolveMentionsInContent(message) || message.content;
       const authorName = message.member?.displayName || message.author.username;

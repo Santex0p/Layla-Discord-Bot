@@ -5,7 +5,9 @@ import {
   createAudioPlayer,
   createAudioResource,
   StreamType,
-  AudioPlayerStatus
+  AudioPlayerStatus,
+  entersState,
+  VoiceConnectionStatus
 } from '@discordjs/voice';
 import prism from 'prism-media';
 import aiService from './AiService.js';
@@ -118,11 +120,9 @@ class VoiceChannelService {
     });
 
     // Esperar a que la conexion UDP este lista
-    import('@discordjs/voice').then(({ entersState, VoiceConnectionStatus }) => {
-      entersState(connection, VoiceConnectionStatus.Ready, 30000)
-        .then(() => console.log('✅ [VOICE] Conexion UDP/WebSocket establecida (Ready).'))
-        .catch((err) => console.error('❌ [VOICE] Error conectando a Discord:', err.message || err));
-    });
+    entersState(connection, VoiceConnectionStatus.Ready, 30000)
+      .then(() => console.log('✅ [VOICE] Conexion UDP/WebSocket establecida (Ready).'))
+      .catch((err) => console.error('❌ [VOICE] Error conectando a Discord:', err.message || err));
 
     // Conectar a Gemini Live API
     try {
@@ -277,10 +277,9 @@ class VoiceChannelService {
     if (sessionData.session) {
       if (!silent && sessionData.alexaMode) {
         console.log(`[VOICE-MODE] 🌟 Layla ha sido llamada (Wake Word). Despertando por 30s.`);
-        let contextMsg = '';
         try {
           sessionData.session.sendClientContent({
-            turns: [{ role: 'user', parts: [{ text: `(Layla, te acaban de llamar por tu nombre. Responde confundida preguntando por qué te llaman. ¡Rápido!${contextMsg})` }] }],
+            turns: [{ role: 'user', parts: [{ text: `(Layla, te acaban de llamar por tu nombre. Responde confundida preguntando por qué te llaman. ¡Rápido!)` }] }],
             turnComplete: true
           });
         } catch (e) { }
@@ -620,11 +619,11 @@ class VoiceChannelService {
         });
       } catch (e) { }
     } else {
-      // VAD: Enviar 2 segundos de silencio tras el último audio, luego parar
+      // VAD: Enviar unos pocos frames de silencio (200ms) tras el último audio para que Gemini detecte el fin rápidamente
       if (!sessionData.session || (sessionData.alexaMode && sessionData.alexaState === 'ASLEEP')) return;
 
       const timeSinceLastAudio = Date.now() - sessionData.lastMixedAudioTime;
-      if (timeSinceLastAudio >= 100 && timeSinceLastAudio <= 2000) {
+      if (timeSinceLastAudio >= 100 && timeSinceLastAudio <= 300) {
         sessionData.silenceLogCounter++;
         try {
           sessionData.session.sendRealtimeInput({
@@ -662,7 +661,10 @@ class VoiceChannelService {
     if (sessionData.recycleInterval) clearInterval(sessionData.recycleInterval);
     if (sessionData.cooldownTimer) clearTimeout(sessionData.cooldownTimer);
     if (sessionData.alexaWakeTimer) clearTimeout(sessionData.alexaWakeTimer);
-    if (sessionData.voskRecognizer) sessionData.voskRecognizer.free();
+    // Liberar reconocedores Vosk individuales de cada usuario antes de borrar el Map
+    for (const [, userData] of sessionData.userBuffers) {
+      if (userData.voskRecognizer) { try { userData.voskRecognizer.free(); } catch {} }
+    }
     sessionData.activeListeners.clear();
     sessionData.userBuffers.clear();
 

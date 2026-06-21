@@ -28,11 +28,8 @@ class GlobalSettingsManager {
   }
 
   _saveSettings() {
-    try {
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(this.settings, null, 2), 'utf8');
-    } catch (e) {
-      console.error(`[GlobalSettingsManager] Error guardando settings.json:`, e.message);
-    }
+    fs.promises.writeFile(SETTINGS_FILE, JSON.stringify(this.settings, null, 2), 'utf8')
+      .catch(e => console.error(`[GlobalSettingsManager] Error guardando settings.json:`, e.message));
   }
 
   get(key) {

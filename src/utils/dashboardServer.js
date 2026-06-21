@@ -4,7 +4,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import guildPromptManager from '../models/GuildPromptManager.js';
 import globalSettingsManager from '../models/GlobalSettingsManager.js';
-import stateManager from '../models/ChannelStateManager.js';
+import authManager from '../models/AuthManager.js';
 
 // Configuración
 const PORT = 8080;
@@ -73,7 +73,95 @@ console.error = function (...args) {
 };
 
 // Crear el servidor HTTP para el Dashboard Web
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
+  function parseCookies(request) {
+    const list = {};
+    const rc = request.headers.cookie;
+    if (rc) {
+      rc.split(';').forEach((cookie) => {
+        const parts = cookie.split('=');
+        list[parts.shift().trim()] = decodeURI(parts.join('='));
+      });
+    }
+    return list;
+  }
+
+  // --- RUTAS DE AUTENTICACIÓN ---
+  if (req.url === '/api/auth/status' && req.method === 'GET') {
+    const cookies = parseCookies(req);
+    const hasAdmin = await authManager.hasAdmin();
+    const isValidToken = await authManager.validateToken(cookies.LaylaAuth);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ hasAdmin, isAuth: isValidToken }));
+    return;
+  }
+
+  if (req.url === '/api/auth/register' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); if (body.length > 51200) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const { password } = JSON.parse(body);
+        if (!password || password.length < 4) throw new Error('Contraseña demasiado corta');
+        await authManager.registerAdmin(password);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.url === '/api/auth/login' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); if (body.length > 51200) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const { password } = JSON.parse(body);
+        const token = await authManager.loginAdmin(password);
+        if (token) {
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Set-Cookie': `LaylaAuth=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict`
+          });
+          res.end(JSON.stringify({ success: true }));
+        } else {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Contraseña incorrecta' }));
+        }
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.url === '/api/auth/logout' && req.method === 'POST') {
+    const cookies = parseCookies(req);
+    await authManager.logoutAdmin(cookies.LaylaAuth);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Set-Cookie': `LaylaAuth=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict`
+    });
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
+  // --- MIDDLEWARE DE PROTECCIÓN ---
+  const isApiOrStream = req.url.startsWith('/api/') || req.url === '/stream';
+  if (isApiOrStream) {
+    const cookies = parseCookies(req);
+    const isValidToken = await authManager.validateToken(cookies.LaylaAuth);
+    if (!isValidToken) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+  }
+
   // Ruta principal: Servir el HTML
   if (req.url === '/' || req.url === '/index.html') {
     const htmlPath = path.join(PUBLIC_DIR, 'index.html');
@@ -91,9 +179,15 @@ const server = http.createServer((req, res) => {
 
   // Servir imágenes estáticas
   if (req.url.startsWith('/img/') && req.method === 'GET') {
-    // Evitar directory traversal
-    const safePath = path.normalize(req.url).replace(/^(\.\.[\/\\])+/, '');
-    const imgPath = path.join(PUBLIC_DIR, safePath);
+    // Evitar directory traversal: resolver la ruta y verificar que esté dentro de PUBLIC_DIR
+    const safePath = path.normalize(decodeURIComponent(req.url));
+    const imgPath = path.resolve(PUBLIC_DIR, '.' + safePath);
+    
+    if (!imgPath.startsWith(PUBLIC_DIR)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
     
     fs.readFile(imgPath, (err, data) => {
       if (err) {
@@ -173,7 +267,10 @@ const server = http.createServer((req, res) => {
   if (req.url.startsWith('/api/servers/') && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
     let body = '';
-    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('data', chunk => {
+      body += chunk.toString();
+      if (body.length > 524288) { req.destroy(); return; } // 512KB max
+    });
     req.on('end', () => {
       try {
         const parsed = JSON.parse(body);
@@ -238,7 +335,10 @@ const server = http.createServer((req, res) => {
   // API POST: Actualizar un ajuste global
   if (req.url === '/api/settings' && req.method === 'POST') {
     let body = '';
-    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('data', chunk => {
+      body += chunk.toString();
+      if (body.length > 524288) { req.destroy(); return; } // 512KB max
+    });
     req.on('end', () => {
       try {
         const parsed = JSON.parse(body);

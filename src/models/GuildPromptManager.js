@@ -29,15 +29,12 @@ class GuildPromptManager {
   }
 
   _savePrompts() {
-    try {
-      const obj = {};
-      for (const [guildId, info] of this.prompts.entries()) {
-        obj[guildId] = info;
-      }
-      fs.writeFileSync(PROMPTS_FILE, JSON.stringify(obj, null, 2), 'utf8');
-    } catch (e) {
-      console.error(`[GuildPromptManager] Error guardando server_prompts.json:`, e.message);
+    const obj = {};
+    for (const [guildId, info] of this.prompts.entries()) {
+      obj[guildId] = info;
     }
+    fs.promises.writeFile(PROMPTS_FILE, JSON.stringify(obj, null, 2), 'utf8')
+      .catch(e => console.error(`[GuildPromptManager] Error guardando server_prompts.json:`, e.message));
   }
 
   ensureGuildRegistered(guildId, guildName) {
