@@ -14,22 +14,8 @@ import aiService from './AiService.js';
 import stateManager from '../models/ChannelStateManager.js';
 
 import path from 'path';
-
-let vosk = null;
-let voskModel = null;
-import('vosk-koffi').then(v => {
-  vosk = v.default || v;
-  vosk.setLogLevel(-1);
-  try {
-    const modelPath = path.join(process.cwd(), 'vosk-model', 'vosk-model-small-es-0.42');
-    voskModel = new vosk.Model(modelPath);
-    console.log("✅ [VOICE] Motor Vosk-Koffi (Alexa Mode) cargado exitosamente.");
-  } catch (e) {
-    console.log("⚠️ [VOICE] Carpeta vosk-model no encontrada o ruta inválida. Vosk inactivo.");
-  }
-}).catch(e => {
-  console.error("❌ [VOICE] Librería vosk-koffi no encontrada. Asegúrate de instalarla.");
-});
+import guildPromptManager from '../models/GuildPromptManager.js';
+import voskModelManager from '../models/VoskModelManager.js';
 
 class VoiceChannelService {
   constructor() {
@@ -129,11 +115,16 @@ class VoiceChannelService {
       // Activar modo voz (añade instrucciones de wake word al prompt)
       stateManager.setVoiceMode(voiceChannel.id, true);
 
+      // Obtener el idioma configurado para este servidor
+      const langCode = guildPromptManager.getLanguage(voiceChannel.guild.id);
+      const catalogInfo = voskModelManager.getCatalog().find(l => l.code === langCode);
+      const langName = catalogInfo ? catalogInfo.name : langCode.toUpperCase();
+
+      console.log(`✅ [VOICE] Unida a canal de voz ${voiceChannel.id} (Idioma configurado: ${langName})`);
+
       // 5) Conectar AI y registrar la sesión en vivo
       const session = await aiService.ensureLiveSession(voiceChannel.id, member.user.id, voiceChannel.guild.id);
       sessionData.session = session;
-
-      console.log(`✅ [VOICE] Unida a canal de voz ${voiceChannel.id}`);
 
       // Configurar escucha multi-usuario + mixer central
       this._setupMultiUserListening(connection, voiceChannel.id);
@@ -143,9 +134,9 @@ class VoiceChannelService {
       for (const [memberId] of humanMembers) {
         this._startListeningToUser(connection, memberId, voiceChannel.id);
       }
-      console.log(`🎧 [VOICE] Escuchando a ${humanMembers.size} usuario(s) en el canal.`);
+      console.log(`🎧 [VOICE] Escuchando a ${humanMembers.size} usuario(s) en el canal usando modelo de idioma: ${langName}.`);
 
-      await interaction.reply('¡Me uní a la llamada! Digan **"Layla"** para hablar conmigo 🎤');
+      await interaction.reply(`¡Me uní a la llamada! Digan **"Layla"** para hablar conmigo 🎤\n*(Idioma configurado: **${langName}**)*`);
     } catch (err) {
       console.error('Error al conectar con Gemini para voz:', err);
       interaction.followUp('Ocurrió un error al intentar conectarme con mi cerebro.');
@@ -435,7 +426,7 @@ class VoiceChannelService {
   // ============================================================
   //  Per-user: Capturar y decodificar audio de un usuario
   // ============================================================
-  _startListeningToUser(connection, userId, channelId, retryCount = 0) {
+  async _startListeningToUser(connection, userId, channelId, retryCount = 0) {
     const sessionData = this.players.get(channelId);
     if (!sessionData) return;
 
@@ -446,8 +437,13 @@ class VoiceChannelService {
     // Inicializar buffer del usuario si no existe
     if (!sessionData.userBuffers.has(userId)) {
       let userVosk = null;
-      if (voskModel) {
-        userVosk = new vosk.Recognizer({ model: voskModel, sampleRate: 16000 });
+      const vosk = voskModelManager.getVosk();
+      if (vosk && voskModelManager.isAvailable()) {
+        const lang = guildPromptManager.getLanguage(sessionData.guildId);
+        const model = await voskModelManager.getModel(lang);
+        if (model) {
+          userVosk = new vosk.Recognizer({ model, sampleRate: 16000 });
+        }
       }
       sessionData.userBuffers.set(userId, {
         buffer: Buffer.alloc(0),

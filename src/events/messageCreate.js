@@ -174,11 +174,11 @@ export default {
             console.error('⚠️ [FFMPEG] Falló la creación del MP4:', e);
           }
 
-          if (!CONFIG.DOMAIN) {
-            console.error('⚠️ [ENV] Error: No se ha configurado la variable DOMAIN en el archivo .env. Imposible generar y enviar el enlace de audio.');
+          if (!CONFIG.MEDIA_DOMAIN) {
+            console.error('⚠️ [ENV] Error: No se ha configurado la variable MEDIA_DOMAIN en el archivo .env. Imposible generar y enviar el enlace de audio.');
             await message.reply('Oops, mi administrador no ha configurado mi dominio de archivos, así que no puedo enviarte el audio. Revisa los logs del servidor.');
           } else {
-            const audioUrl = `https://${CONFIG.DOMAIN}/${fileId}.mp3`;
+            const audioUrl = `https://${CONFIG.MEDIA_DOMAIN}/${fileId}.mp3`;
             await message.reply(audioUrl);
           }
         } else {

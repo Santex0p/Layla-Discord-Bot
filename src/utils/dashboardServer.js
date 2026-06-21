@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import guildPromptManager from '../models/GuildPromptManager.js';
 import globalSettingsManager from '../models/GlobalSettingsManager.js';
 import authManager from '../models/AuthManager.js';
+import voskModelManager from '../models/VoskModelManager.js';
 
 // Puerto del dashboard
 const PORT = 80;
@@ -74,6 +75,19 @@ console.error = function (...args) {
 
 // Crear el servidor HTTP para el Dashboard Web
 const server = http.createServer(async (req, res) => {
+  const send404Gif = (res, statusCode = 404) => {
+    const gifPath = path.join(PUBLIC_DIR, 'img', '404.gif');
+    fs.readFile(gifPath, (err, data) => {
+      if (err) {
+        res.writeHead(statusCode, { 'Content-Type': 'text/plain' });
+        res.end(statusCode === 403 ? '403 Forbidden' : '404 Not found');
+        return;
+      }
+      res.writeHead(statusCode, { 'Content-Type': 'image/gif' });
+      res.end(data);
+    });
+  };
+
   function parseCookies(request) {
     const list = {};
     const rc = request.headers.cookie;
@@ -93,7 +107,7 @@ const server = http.createServer(async (req, res) => {
     const userAgent = req.headers['user-agent'] || '';
     
     if (userAgent.toLowerCase().includes('discordbot')) {
-      const host = req.headers.host || process.env.DOMAIN || 'localhost';
+      const host = req.headers.host || process.env.MEDIA_DOMAIN || 'localhost';
       res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8' });
       res.end(`<!doctype html>
       <html lang="es">
@@ -192,6 +206,12 @@ const server = http.createServer(async (req, res) => {
       }
     });
     return;
+  }
+
+  // --- FILTRO DE DOMINIO PARA EL DASHBOARD ---
+  const requestedHost = (req.headers.host || '').split(':')[0];
+  if (process.env.DASHBOARD_DOMAIN && requestedHost !== process.env.DASHBOARD_DOMAIN) {
+    return send404Gif(res, 403);
   }
 
   // --- RUTAS DE AUTENTICACIÓN ---
@@ -477,9 +497,49 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API GET: Catálogo de idiomas Vosk
+  if (req.url === '/api/vosk/catalog' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(voskModelManager.getCatalog()));
+    return;
+  }
+
+  // API POST: Actualizar idioma de un servidor
+  if (req.url.match(/^\/api\/servers\/[^/]+\/language$/) && req.method === 'POST') {
+    const guildId = req.url.split('/')[3];
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+      if (body.length > 4096) { req.destroy(); return; }
+    });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body);
+        if (!parsed.language || !voskModelManager.isValidLang(parsed.language)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Idioma no válido o no soportado' }));
+          return;
+        }
+        const success = guildPromptManager.setLanguage(guildId, parsed.language);
+        if (success) {
+          // Pre-descargar el modelo en segundo plano si no existe
+          voskModelManager.getModel(parsed.language).catch(() => {});
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Server not found' }));
+        }
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
   // Cualquier otra ruta
-  res.writeHead(404);
-  res.end('Not found');
+  send404Gif(res, 404);
 });
 
 // Arrancar el servidor web silenciosamente

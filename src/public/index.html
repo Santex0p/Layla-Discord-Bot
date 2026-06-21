@@ -116,6 +116,14 @@
         <p style="margin-bottom: 12px; color: var(--text-muted);">Edita las instrucciones del sistema (Personalidad).
           Los cambios se aplicarán al instante.</p>
         <textarea id="prompt-textarea" spellcheck="false"></textarea>
+
+        <div class="language-selector-section">
+          <label for="language-select">🌐 Idioma de Reconocimiento de Voz (Vosk)</label>
+          <p class="language-description">Selecciona el idioma principal de este servidor para la detección del wake word.</p>
+          <select id="language-select">
+            <option value="">Cargando idiomas...</option>
+          </select>
+        </div>
       </div>
       <div class="modal-footer" style="justify-content: space-between;">
         <div>

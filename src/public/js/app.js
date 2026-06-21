@@ -71,6 +71,18 @@
 
     // --- ACCIONES DEL MODAL ---
     let currentEditingGuild = null;
+    let voskCatalog = [];
+
+    // Cargar catálogo de idiomas Vosk al inicio
+    async function loadVoskCatalog() {
+      try {
+        const res = await fetch('/api/vosk/catalog');
+        voskCatalog = await res.json();
+      } catch (e) {
+        console.error('Error cargando catálogo Vosk:', e);
+      }
+    }
+    loadVoskCatalog();
 
     async function loadServers() {
       try {
@@ -84,7 +96,7 @@
 
           const card = document.createElement('div');
           card.className = 'server-card';
-          card.onclick = () => openModal(guildId, info.serverName, info.prompt);
+          card.onclick = () => openModal(guildId, info.serverName, info.prompt, info.language);
 
           card.innerHTML = `
             <div class="server-card-header">
@@ -174,11 +186,23 @@
     }
 
     // --- MODAL Y GUARDADO ---
-    function openModal(guildId, name, prompt) {
+    function openModal(guildId, name, prompt, language) {
       currentEditingGuild = guildId;
       document.getElementById('modal-server-name').innerText = name;
       document.getElementById('modal-server-id').innerText = `ID: ${guildId}`;
       document.getElementById('prompt-textarea').value = prompt;
+      
+      // Poblar el selector de idiomas
+      const select = document.getElementById('language-select');
+      select.innerHTML = '';
+      for (const lang of voskCatalog) {
+        const opt = document.createElement('option');
+        opt.value = lang.code;
+        opt.textContent = lang.name;
+        if (lang.code === (language || '')) opt.selected = true;
+        select.appendChild(opt);
+      }
+      
       document.getElementById('prompt-modal').classList.add('active');
     }
 
@@ -190,6 +214,7 @@
     async function savePrompt() {
       if (!currentEditingGuild) return;
       const newPrompt = document.getElementById('prompt-textarea').value;
+      const newLanguage = document.getElementById('language-select').value;
       const btn = document.querySelector('.btn-primary');
       const originalText = btn.innerText;
 
@@ -197,16 +222,26 @@
       btn.disabled = true;
 
       try {
+        // Guardar prompt
         const res = await fetch(`/api/servers/${currentEditingGuild}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt: newPrompt })
         });
 
+        // Guardar idioma
+        if (newLanguage) {
+          await fetch(`/api/servers/${currentEditingGuild}/language`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ language: newLanguage })
+          });
+        }
+
         if (res.ok) {
           closeModal();
           showToast();
-          loadServers(); // Recargar grid
+          loadServers();
         } else {
           alert('Error al guardar el prompt');
         }

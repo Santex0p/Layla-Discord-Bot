@@ -42,7 +42,8 @@ class GuildPromptManager {
     if (!this.prompts.has(guildId)) {
       this.prompts.set(guildId, {
         serverName: guildName || 'Servidor Desconocido',
-        prompt: CONFIG.LIVE_SYSTEM_INSTRUCTION
+        prompt: CONFIG.LIVE_SYSTEM_INSTRUCTION,
+        language: CONFIG.DEFAULT_VOSK_LANG
       });
       this._savePrompts();
       console.log(`[GuildPromptManager] Servidor registrado: ${guildName} (${guildId}) con prompt por defecto.`);
@@ -80,6 +81,31 @@ class GuildPromptManager {
     
     this._savePrompts();
     console.log(`[GuildPromptManager] Prompt actualizado para servidor: ${guildId}`);
+    return true;
+  }
+
+  getLanguage(guildId) {
+    if (!guildId || !this.prompts.has(guildId)) {
+      return CONFIG.DEFAULT_VOSK_LANG;
+    }
+    const info = this.prompts.get(guildId);
+    return info.language || CONFIG.DEFAULT_VOSK_LANG;
+  }
+
+  setLanguage(guildId, langCode) {
+    if (!guildId || !langCode) return false;
+    if (this.prompts.has(guildId)) {
+      const info = this.prompts.get(guildId);
+      info.language = langCode;
+    } else {
+      this.prompts.set(guildId, {
+        serverName: 'Servidor Desconocido',
+        prompt: CONFIG.LIVE_SYSTEM_INSTRUCTION,
+        language: langCode
+      });
+    }
+    this._savePrompts();
+    console.log(`[GuildPromptManager] Idioma actualizado a '${langCode}' para servidor: ${guildId}`);
     return true;
   }
 }
