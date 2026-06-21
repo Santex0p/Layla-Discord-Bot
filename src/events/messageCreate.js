@@ -158,7 +158,7 @@ export default {
 
           const attachmentBuffer = await audioService.pcm16ToMp3Buffer(audioBuffer);
           const fileId = `layla_${Date.now()}`;
-          const audiosDir = '/app/layla-media/audios';
+          const audiosDir = '/app/data/audios';
 
           // Asegurar que el directorio exista (en docker suele existir, pero por seguridad)
           try { await fs.mkdir(audiosDir, { recursive: true }); } catch (e) { }
@@ -174,8 +174,13 @@ export default {
             console.error('⚠️ [FFMPEG] Falló la creación del MP4:', e);
           }
 
-          const audioUrl = `https://files.universan.fun/${fileId}.mp3`;
-          await message.reply(audioUrl);
+          if (!CONFIG.DOMAIN) {
+            console.error('⚠️ [ENV] Error: No se ha configurado la variable DOMAIN en el archivo .env. Imposible generar y enviar el enlace de audio.');
+            await message.reply('Oops, mi administrador no ha configurado mi dominio de archivos, así que no puedo enviarte el audio. Revisa los logs del servidor.');
+          } else {
+            const audioUrl = `https://${CONFIG.DOMAIN}/${fileId}.mp3`;
+            await message.reply(audioUrl);
+          }
         } else {
           await message.reply(transcript || 'No pude hablar, pero aquí va mi respuesta en texto.').catch(() => { });
         }

@@ -9,6 +9,7 @@ export const CONFIG = {
   OLLAMA_URL: process.env.OLLAMA_URL,
   OLLAMA_MODEL: process.env.OLLAMA_MODEL,
   OLLAMA_ONLY: process.env.OLLAMA_ONLY === 'true',
+  DOMAIN: process.env.DOMAIN,
 
   // Instrucciones
   LIVE_SYSTEM_INSTRUCTION: `Rol: Layla (chica humana real, chat voz).

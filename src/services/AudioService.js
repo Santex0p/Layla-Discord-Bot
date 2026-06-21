@@ -43,7 +43,7 @@ class AudioService {
   /**
    * Genera un MP4 super ligero con una imagen estática y el audio MP3
    */
-  async createMp4WithStaticImage(mp3Path, mp4Path, imagePath = '/app/layla-media/audios/background.png') {
+  async createMp4WithStaticImage(mp3Path, mp4Path, imagePath = '/app/data/background.png') {
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn(ffmpegPath, [
         '-loop', '1',

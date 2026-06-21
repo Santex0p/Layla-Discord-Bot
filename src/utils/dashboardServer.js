@@ -6,8 +6,8 @@ import guildPromptManager from '../models/GuildPromptManager.js';
 import globalSettingsManager from '../models/GlobalSettingsManager.js';
 import authManager from '../models/AuthManager.js';
 
-// Configuración
-const PORT = 8080;
+// Puerto del dashboard
+const PORT = 80;
 const PUBLIC_DIR = path.join(process.cwd(), 'src', 'public');
 
 // Event Emitter para los logs en vivo
@@ -86,13 +86,131 @@ const server = http.createServer(async (req, res) => {
     return list;
   }
 
+  // --- INTERCEPTOR DE AUDIO PARA DISCORD (Ruta raíz /*.mp3) ---
+  const mp3RootMatch = req.url.match(/^\/([^/]+)\.mp3$/);
+  if (mp3RootMatch && req.method === 'GET') {
+    const filename = mp3RootMatch[1];
+    const userAgent = req.headers['user-agent'] || '';
+    
+    if (userAgent.toLowerCase().includes('discordbot')) {
+      const host = req.headers.host || process.env.DOMAIN || 'localhost';
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8' });
+      res.end(`<!doctype html>
+      <html lang="es">
+      <head>
+          <meta charset="UTF-8">
+          <meta property="og:site_name" content="Layla Audio">
+          <meta property="og:title" content="Laya Habla - Reproduce el audio">
+          <meta property="og:description" content="Reproduce el audio">
+          
+          <meta property="og:image" content="https://${host}/background.png">
+          
+          <meta property="og:type" content="video.other">
+          <meta property="og:video" content="https://${host}/audios/${filename}.mp4">
+          <meta property="og:video:secure_url" content="https://${host}/audios/${filename}.mp4">
+          <meta property="og:video:type" content="video/mp4">
+          <meta property="og:video:width" content="600">
+          <meta property="og:video:height" content="600">
+      </head>
+      <body style="background:#222;"></body>
+      </html>`);
+      return;
+    } else {
+      // Reescritura interna: si es humano o navegador, buscar en /audios/
+      req.url = `/audios/${filename}.mp3`;
+    }
+  }
+
+  // --- IMAGEN DE FONDO PERSONALIZADA ---
+  if (req.url === '/background.png' && req.method === 'GET') {
+    const filePath = '/app/data/background.png';
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        res.writeHead(404);
+        res.end('Not found');
+        return;
+      }
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      res.end(data);
+    });
+    return;
+  }
+
+  // --- SERVIDOR DE CARPETA FISICA (/audios/) ---
+  if (req.url.startsWith('/audios/') && req.method === 'GET') {
+    const safePath = path.normalize(decodeURIComponent(req.url.replace('/audios', '')));
+    const filePath = path.join('/app/data/audios', safePath);
+    
+    // Evitar Path Traversal
+    if (!filePath.startsWith('/app/data/audios')) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+
+    fs.stat(filePath, (err, stat) => {
+      if (err) {
+        res.writeHead(404);
+        res.end('Audio file not found');
+        return;
+      }
+      
+      const ext = path.extname(filePath).toLowerCase();
+      let contentType = 'application/octet-stream';
+      if (ext === '.mp3') contentType = 'audio/mpeg';
+      else if (ext === '.mp4') contentType = 'video/mp4';
+      else if (ext === '.png') contentType = 'image/png';
+
+      // Cabeceras equivalentes a Nginx
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      const range = req.headers.range;
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+        const chunksize = (end - start) + 1;
+        
+        const fileStream = fs.createReadStream(filePath, { start, end });
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunksize,
+          'Content-Type': contentType,
+        });
+        fileStream.pipe(res);
+      } else {
+        res.writeHead(200, {
+          'Content-Length': stat.size,
+          'Content-Type': contentType,
+        });
+        fs.createReadStream(filePath).pipe(res);
+      }
+    });
+    return;
+  }
+
   // --- RUTAS DE AUTENTICACIÓN ---
-  if (req.url === '/api/auth/status' && req.method === 'GET') {
-    const cookies = parseCookies(req);
-    const hasAdmin = await authManager.hasAdmin();
-    const isValidToken = await authManager.validateToken(cookies.LaylaAuth);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ hasAdmin, isAuth: isValidToken }));
+  if (req.url.startsWith('/api/auth/status') && req.method === 'POST') {
+    try {
+      const cookies = parseCookies(req);
+      const hasAdmin = await authManager.hasAdmin();
+      const isValidToken = await authManager.validateToken(cookies.LaylaAuth);
+      console.log(`[AUTH-DEBUG] hasAdmin=${hasAdmin}, isAuth=${isValidToken}, cookie=${cookies.LaylaAuth ? 'present' : 'none'}`);
+      res.writeHead(200, { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
+      });
+      res.end(JSON.stringify({ hasAdmin, isAuth: isValidToken }));
+    } catch(e) {
+      console.error('[AUTH] Error en status:', e);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal Server Error' }));
+    }
     return;
   }
 
@@ -104,7 +222,12 @@ const server = http.createServer(async (req, res) => {
         const { password } = JSON.parse(body);
         if (!password || password.length < 4) throw new Error('Contraseña demasiado corta');
         await authManager.registerAdmin(password);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        
+        const token = await authManager.loginAdmin(password);
+        res.writeHead(200, { 
+          'Content-Type': 'application/json',
+          'Set-Cookie': `LaylaAuth=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict`
+        });
         res.end(JSON.stringify({ success: true }));
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -162,46 +285,45 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Ruta principal: Servir el HTML
-  if (req.url === '/' || req.url === '/index.html') {
-    const htmlPath = path.join(PUBLIC_DIR, 'index.html');
-    fs.readFile(htmlPath, (err, data) => {
-      if (err) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Dashboard not found. Please create src/public/index.html');
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(data);
-    });
-    return;
-  }
-
-  // Servir imágenes estáticas
-  if (req.url.startsWith('/img/') && req.method === 'GET') {
-    // Evitar directory traversal: resolver la ruta y verificar que esté dentro de PUBLIC_DIR
-    const safePath = path.normalize(decodeURIComponent(req.url));
-    const imgPath = path.resolve(PUBLIC_DIR, '.' + safePath);
+  // --- SERVIDOR DE ARCHIVOS ESTÁTICOS ---
+  if (!isApiOrStream && req.method === 'GET') {
+    let reqPath = req.url === '/' ? '/index.html' : req.url;
+    reqPath = reqPath.split('?')[0]; // Remover query strings
     
-    if (!imgPath.startsWith(PUBLIC_DIR)) {
+    // Evitar directory traversal
+    const safePath = path.normalize(decodeURIComponent(reqPath));
+    const filePath = path.resolve(PUBLIC_DIR, '.' + safePath);
+    
+    if (!filePath.startsWith(PUBLIC_DIR)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
     }
     
-    fs.readFile(imgPath, (err, data) => {
+    fs.readFile(filePath, (err, data) => {
       if (err) {
-        res.writeHead(404);
-        res.end('Image not found');
+        if (reqPath === '/index.html') {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Dashboard not found. Please create src/public/index.html');
+        } else {
+          res.writeHead(404);
+          res.end('File not found');
+        }
         return;
       }
       
-      const ext = path.extname(imgPath).toLowerCase();
-      let contentType = 'image/jpeg';
-      if (ext === '.png') contentType = 'image/png';
-      if (ext === '.gif') contentType = 'image/gif';
-      if (ext === '.svg') contentType = 'image/svg+xml';
-      if (ext === '.webp') contentType = 'image/webp';
+      const ext = path.extname(filePath).toLowerCase();
+      let contentType = 'text/plain';
+      if (ext === '.html') contentType = 'text/html';
+      else if (ext === '.css') contentType = 'text/css';
+      else if (ext === '.js') contentType = 'application/javascript';
+      else if (ext === '.png') contentType = 'image/png';
+      else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+      else if (ext === '.gif') contentType = 'image/gif';
+      else if (ext === '.svg') contentType = 'image/svg+xml';
+      else if (ext === '.webp') contentType = 'image/webp';
+      else if (ext === '.ico') contentType = 'image/x-icon';
+      else if (ext === '.json') contentType = 'application/json';
       
       res.writeHead(200, { 'Content-Type': contentType });
       res.end(data);
