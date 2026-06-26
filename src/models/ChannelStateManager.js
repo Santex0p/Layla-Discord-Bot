@@ -277,13 +277,26 @@ class ChannelStateManager {
     ].join('\n');
   }
 
-  buildHistoryContents(channelId, userId) {
+  buildHistoryContents(channelId) {
+    const channelHist = this.conversationHistories.get(channelId) || [];
+    const recentChannelHist = channelHist.slice(-6); // Últimos 6 mensajes del canal
+
+    const merged = [];
+    for (const m of recentChannelHist) {
+      const line = this.formatHistoryEntry(m);
+      if (line) merged.push(line);
+    }
+    return merged;
+  }
+
+  buildExtractionHistory(channelId, userId) {
     const channelHist = this.conversationHistories.get(channelId) || [];
     const userHist = userId ? (this.perUserHistories.get(`${channelId}:${userId}`) || []) : [];
-    const recentUserHist = userHist.slice(-4);
-    const recentChannelHist = channelHist.slice(-2);
+    
+    // Para la extracción, usamos una ventana mucho más grande (hasta 20 mensajes del usuario y 10 globales)
+    const recentUserHist = userHist.slice(-20);
+    const recentChannelHist = channelHist.slice(-10);
 
-    // Unir ambos historiales y ordenarlos cronológicamente por timestamp
     let combined = [...recentUserHist, ...recentChannelHist];
     combined.sort((a, b) => a.timestamp - b.timestamp);
 

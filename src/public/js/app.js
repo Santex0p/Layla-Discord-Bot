@@ -60,6 +60,7 @@
           
           loadServers();
           loadSettings();
+          loadGlobalRelationships();
           connectSSE();
         }
       } catch(e) {
@@ -248,7 +249,283 @@
       // Cargar Canales dinámicamente
       loadServerChannels(guildId);
 
+      // Cargar Relaciones y Memorias
+      loadServerMembers(guildId);
+      loadRelationships(guildId);
+      loadMemories(guildId);
+
       switchView('view-server-settings');
+    }
+
+    // --- LÓGICA DE RELACIONES ---
+    async function loadServerMembers(guildId) {
+      try {
+        const res = await fetch(`/api/servers/${guildId}/channels`);
+        // Usamos una ruta alternativa: listar miembros del servidor
+        const membersRes = await fetch(`/api/servers/${guildId}/members`);
+        if (!membersRes.ok) {
+          // Si la ruta no existe aún, dejamos los selects vacíos con opción manual
+          ['rel-user-select', 'mem-user-select'].forEach(id => {
+            const sel = document.getElementById(id);
+            sel.innerHTML = '<option value="">Escribe el User ID manualmente...</option>';
+          });
+          return;
+        }
+        const members = await membersRes.json();
+        ['rel-user-select', 'mem-user-select'].forEach(id => {
+          const sel = document.getElementById(id);
+          sel.innerHTML = '<option value="">Selecciona un usuario...</option>';
+          members.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = `${m.displayName} (${m.username})`;
+            sel.appendChild(opt);
+          });
+        });
+      } catch (e) {
+        console.error('Error cargando miembros:', e);
+      }
+    }
+
+    async function loadRelationships(guildId) {
+      const container = document.getElementById('relationships-list');
+      container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">Cargando...</span>';
+      try {
+        const res = await fetch(`/api/servers/${guildId}/relationships`);
+        const data = await res.json();
+        container.innerHTML = '';
+
+        const entries = Object.entries(data);
+        if (entries.length === 0) {
+          container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">No hay relaciones configuradas aún.</span>';
+          return;
+        }
+
+        entries.forEach(([userId, rel]) => {
+          const div = document.createElement('div');
+          div.style.cssText = 'background: rgba(0,0,0,0.15); padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;';
+          div.innerHTML = `
+            <div>
+              <strong style="color: var(--accent);">${rel.name}</strong> <span style="color: var(--text-muted); font-size: 0.8rem;">(${userId})</span>
+              <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px;">${rel.relationship}</p>
+            </div>
+            <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="deleteRelationship('${userId}')">Eliminar</button>
+          `;
+          container.appendChild(div);
+        });
+      } catch (e) {
+        container.innerHTML = '<span style="color: var(--danger);">Error cargando relaciones.</span>';
+      }
+    }
+
+    window.saveRelationship = async function() {
+      if (!currentEditingGuild) return;
+      const userSelect = document.getElementById('rel-user-select');
+      const userId = userSelect.value || prompt('Ingresa el User ID de Discord:');
+      const name = document.getElementById('rel-name').value.trim();
+      const relationship = document.getElementById('rel-description').value.trim();
+
+      if (!userId || !name || !relationship) {
+        alert('Todos los campos son obligatorios.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/servers/${currentEditingGuild}/relationships`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, name, relationship })
+        });
+        if (res.ok) {
+          showToast('Relación guardada');
+          document.getElementById('rel-name').value = '';
+          document.getElementById('rel-description').value = '';
+          loadRelationships(currentEditingGuild);
+        }
+      } catch (e) {
+        alert('Error guardando relación');
+      }
+    };
+
+    window.deleteRelationship = async function(userId) {
+      if (!currentEditingGuild || !confirm('¿Eliminar esta relación?')) return;
+      try {
+        await fetch(`/api/servers/${currentEditingGuild}/relationships/${userId}`, { method: 'DELETE' });
+        loadRelationships(currentEditingGuild);
+        showToast('Relación eliminada');
+      } catch (e) {
+        alert('Error eliminando relación');
+      }
+    };
+
+    // --- LÓGICA DE MEMORIAS ---
+    async function loadMemories(guildId) {
+      const container = document.getElementById('memories-list');
+      container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">Cargando...</span>';
+      try {
+        const res = await fetch(`/api/servers/${guildId}/memories`);
+        const data = await res.json();
+        container.innerHTML = '';
+
+        const entries = Object.entries(data);
+        if (entries.length === 0) {
+          container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">No hay memorias aún. Se crearán automáticamente o puedes añadirlas manualmente.</span>';
+          return;
+        }
+
+        entries.forEach(([userId, mems]) => {
+          // Encabezado por usuario
+          const header = document.createElement('div');
+          header.style.cssText = 'font-weight: bold; color: var(--accent); font-size: 0.95rem; margin-top: 8px;';
+          header.textContent = `👤 Usuario: ${userId}`;
+          container.appendChild(header);
+
+          mems.forEach(mem => {
+            const div = document.createElement('div');
+            div.style.cssText = 'background: rgba(0,0,0,0.15); padding: 10px 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; margin-left: 16px;';
+            const date = mem.createdAt ? new Date(mem.createdAt).toLocaleDateString() : '?';
+            div.innerHTML = `
+              <div>
+                <p style="color: var(--text-secondary); font-size: 0.9rem;">${mem.text}</p>
+                <span style="color: var(--text-muted); font-size: 0.75rem;">Creado: ${date}</span>
+              </div>
+              <button class="btn btn-danger" style="padding: 4px 10px; font-size: 0.75rem;" onclick="deleteMemory('${userId}', '${mem.id}')">×</button>
+            `;
+            container.appendChild(div);
+          });
+        });
+      } catch (e) {
+        container.innerHTML = '<span style="color: var(--danger);">Error cargando memorias.</span>';
+      }
+    }
+
+    window.saveMemory = async function() {
+      if (!currentEditingGuild) return;
+      const userSelect = document.getElementById('mem-user-select');
+      const userId = userSelect.value || prompt('Ingresa el User ID de Discord:');
+      const text = document.getElementById('mem-text').value.trim();
+
+      if (!userId || !text) {
+        alert('Selecciona un usuario y escribe el recuerdo.');
+        return;
+      }
+
+      const btn = document.querySelector('#memories-list ~ div .btn-primary') || event.target;
+      const originalText = btn.innerText;
+      btn.innerText = 'Procesando...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch(`/api/servers/${currentEditingGuild}/memories`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, text })
+        });
+        const result = await res.json();
+        if (result.success) {
+          showToast('Memoria guardada');
+          document.getElementById('mem-text').value = '';
+          loadMemories(currentEditingGuild);
+        } else if (result.duplicate) {
+          alert('Esta memoria ya existe (duplicado detectado).');
+        } else {
+          alert('Error guardando memoria: ' + (result.error || 'Desconocido'));
+        }
+      } catch (e) {
+        alert('Error de red guardando memoria');
+      } finally {
+        btn.innerText = originalText;
+        btn.disabled = false;
+      }
+    };
+
+    window.deleteMemory = async function(userId, memoryId) {
+      if (!currentEditingGuild || !confirm('¿Eliminar este recuerdo?')) return;
+      try {
+        await fetch(`/api/servers/${currentEditingGuild}/memories/${userId}/${memoryId}`, { method: 'DELETE' });
+        loadMemories(currentEditingGuild);
+        showToast('Memoria eliminada');
+      } catch (e) {
+        alert('Error eliminando memoria');
+      }
+    };
+
+    // --- RELACIONES GLOBALES ---
+    async function loadGlobalRelationships() {
+      try {
+        const res = await fetch('/api/global-relationships');
+        const data = await res.json();
+        
+        const listDiv = document.getElementById('global-relationships-list');
+        listDiv.innerHTML = '';
+        
+        if (Object.keys(data).length === 0) {
+          listDiv.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">No hay administradores registrados.</p>';
+          return;
+        }
+
+        for (const [userId, info] of Object.entries(data)) {
+          const card = document.createElement('div');
+          card.style.cssText = 'background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center;';
+          
+          card.innerHTML = `
+            <div>
+              <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 4px; color: var(--accent);">${info.name} <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">(${userId})</span></div>
+              <div style="color: var(--text-muted);">${info.relationship}</div>
+            </div>
+            <button class="btn btn-danger" onclick="deleteGlobalRelationship('${userId}')">Eliminar</button>
+          `;
+          listDiv.appendChild(card);
+        }
+      } catch (e) {
+        console.error('Error cargando relaciones globales', e);
+      }
+    }
+
+    async function saveGlobalRelationship() {
+      const userId = document.getElementById('global-rel-userid').value.trim();
+      const name = document.getElementById('global-rel-name').value.trim();
+      const relationship = document.getElementById('global-rel-desc').value.trim();
+      
+      if (!userId || !name || !relationship) {
+        alert('Por favor, completa todos los campos.');
+        return;
+      }
+      
+      try {
+        const res = await fetch('/api/global-relationships', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, name, relationship })
+        });
+        
+        if (res.ok) {
+          document.getElementById('global-rel-userid').value = '';
+          document.getElementById('global-rel-name').value = '';
+          document.getElementById('global-rel-desc').value = '';
+          loadGlobalRelationships();
+        } else {
+          const err = await res.json();
+          alert('Error: ' + err.error);
+        }
+      } catch (e) {
+        console.error(e);
+        alert('Error de conexión');
+      }
+    }
+
+    async function deleteGlobalRelationship(userId) {
+      if (!confirm('¿Estás seguro de eliminar este administrador global?')) return;
+      try {
+        const res = await fetch(`/api/global-relationships/${userId}`, { method: 'DELETE' });
+        if (res.ok) {
+          loadGlobalRelationships();
+        } else {
+          alert('Error eliminando administrador');
+        }
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     // --- LÓGICA DE PALABRAS DETONANTES (PILLS) ---

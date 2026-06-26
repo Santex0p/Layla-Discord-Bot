@@ -49,5 +49,5 @@ Reglas:
   LIVE_QUOTA_BACKOFF_MS: Number(process.env.LAYLA_LIVE_QUOTA_BACKOFF_MS) || 30 * 1000,
 
   // Historial
-  HISTORY_SIZE: Number(process.env.LAYLA_HISTORY_SIZE) || 8,
+  HISTORY_SIZE: Number(process.env.LAYLA_HISTORY_SIZE) || 20,
 };

@@ -6,6 +6,7 @@ import guildPromptManager from '../models/GuildPromptManager.js';
 import globalSettingsManager from '../models/GlobalSettingsManager.js';
 import authManager from '../models/AuthManager.js';
 import voskModelManager from '../models/VoskModelManager.js';
+import memoryManager from '../models/MemoryManager.js';
 
 // Puerto del dashboard
 const PORT = 80;
@@ -434,6 +435,97 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API GET: Listar miembros de un servidor (para selectores de Relaciones y Memorias)
+  if (req.url.match(/^\/api\/servers\/[^/]+\/members$/) && req.method === 'GET') {
+    const guildId = req.url.split('/')[3];
+    try {
+      if (discordClient) {
+        const guild = discordClient.guilds.cache.get(guildId);
+        if (guild) {
+          // Intentar cargar miembros si no están en caché
+          await guild.members.fetch({ limit: 100 }).catch(() => {});
+          const members = guild.members.cache
+            .filter(m => !m.user.bot)
+            .map(m => ({
+              id: m.user.id,
+              username: m.user.username,
+              displayName: m.displayName || m.user.username,
+            }))
+            .sort((a, b) => a.displayName.localeCompare(b.displayName));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(members));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Server not found' }));
+        }
+      } else {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Discord client not ready' }));
+      }
+    } catch (error) {
+      console.error('[API] Error cargando miembros:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  // ==================== API: RELACIONES GLOBALES ====================
+
+  // API GET: Obtener lista de relaciones globales
+  if (req.url === '/api/global-relationships' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(memoryManager.getAllGlobalRelationships()));
+    return;
+  }
+
+  // API POST: Añadir/editar relación global
+  if (req.url === '/api/global-relationships' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        const { userId, name, relationship } = payload;
+        
+        if (!userId || !name || !relationship) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing userId, name or relationship' }));
+          return;
+        }
+
+        memoryManager.setGlobalRelationship(userId, name, relationship);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (error) {
+        console.error('[API] Error guardando relación global:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    });
+    return;
+  }
+
+  // API DELETE: Eliminar relación global
+  if (req.url.startsWith('/api/global-relationships/') && req.method === 'DELETE') {
+    const userId = req.url.split('/')[3];
+    try {
+      const deleted = memoryManager.deleteGlobalRelationship(userId);
+      if (deleted) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Relationship not found' }));
+      }
+    } catch (error) {
+      console.error('[API] Error eliminando relación global:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
   // API POST: Actualizar el prompt de un servidor
   if (req.url.match(/^\/api\/servers\/[^/]+$/) && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
@@ -632,6 +724,104 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
       }
     });
+    return;
+  }
+
+  // ==================== API: RELACIONES ====================
+
+  // GET: Obtener todas las relaciones de un servidor
+  if (req.url.match(/^\/api\/servers\/[^/]+\/relationships$/) && req.method === 'GET') {
+    const guildId = req.url.split('/')[3];
+    const relationships = memoryManager.getAllRelationships(guildId);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(relationships));
+    return;
+  }
+
+  // POST: Crear/actualizar una relación
+  if (req.url.match(/^\/api\/servers\/[^/]+\/relationships$/) && req.method === 'POST') {
+    const guildId = req.url.split('/')[3];
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { userId, name, relationship } = JSON.parse(body);
+        if (!userId || !name || !relationship) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'userId, name y relationship son obligatorios' }));
+          return;
+        }
+        memoryManager.setRelationship(guildId, userId, name, relationship);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
+  // DELETE: Eliminar una relación
+  if (req.url.match(/^\/api\/servers\/[^/]+\/relationships\/[^/]+$/) && req.method === 'DELETE') {
+    const parts = req.url.split('/');
+    const guildId = parts[3];
+    const userId = parts[5];
+    const success = memoryManager.deleteRelationship(guildId, userId);
+    res.writeHead(success ? 200 : 404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success }));
+    return;
+  }
+
+  // ==================== API: MEMORIAS ====================
+
+  // GET: Obtener todas las memorias de un servidor
+  if (req.url.match(/^\/api\/servers\/[^/]+\/memories$/) && req.method === 'GET') {
+    const guildId = req.url.split('/')[3];
+    const memories = memoryManager.getAllMemories(guildId);
+    // Enviar sin embeddings para no saturar el payload
+    const cleaned = {};
+    for (const [uid, mems] of Object.entries(memories)) {
+      cleaned[uid] = mems.map(m => ({ id: m.id, text: m.text, createdAt: m.createdAt }));
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(cleaned));
+    return;
+  }
+
+  // POST: Añadir una memoria manualmente
+  if (req.url.match(/^\/api\/servers\/[^/]+\/memories$/) && req.method === 'POST') {
+    const guildId = req.url.split('/')[3];
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); if (body.length > 8192) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const { userId, text } = JSON.parse(body);
+        if (!userId || !text) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'userId y text son obligatorios' }));
+          return;
+        }
+        const saved = await memoryManager.addMemory(guildId, userId, text);
+        res.writeHead(saved ? 200 : 409, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: saved, duplicate: !saved }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message || 'Error procesando memoria' }));
+      }
+    });
+    return;
+  }
+
+  // DELETE: Eliminar una memoria
+  if (req.url.match(/^\/api\/servers\/[^/]+\/memories\/[^/]+\/[^/]+$/) && req.method === 'DELETE') {
+    const parts = req.url.split('/');
+    const guildId = parts[3];
+    const userId = parts[5];
+    const memoryId = parts[6];
+    const success = memoryManager.deleteMemory(guildId, userId, memoryId);
+    res.writeHead(success ? 200 : 404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success }));
     return;
   }
 

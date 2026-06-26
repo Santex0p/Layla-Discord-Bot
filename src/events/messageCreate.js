@@ -1,6 +1,7 @@
 import stateManager from '../models/ChannelStateManager.js';
 import aiService from '../services/AiService.js';
 import audioService from '../services/AudioService.js';
+import memoryManager from '../models/MemoryManager.js';
 import guildPromptManager from '../models/GuildPromptManager.js';
 import globalSettingsManager from '../models/GlobalSettingsManager.js';
 import {
@@ -32,6 +33,54 @@ export default {
     const isRawMention = message.mentions.users.has(message.client.user.id) &&
       (!isReplyToLayla || message.content.includes(`<@${message.client.user.id}>`) || message.content.includes(`<@!${message.client.user.id}>`));
 
+    // ==================== HISTORIAL Y MEMORIA GLOBAL ====================
+    // Parsear el texto base (resolviendo menciones y replies) para el historial general
+    let cleanText = resolveMentionsInContent(message) || message.content;
+    const authorName = message.member?.displayName || message.author.username;
+    const guildId = message.guild.id;
+    const userId = message.author.id;
+
+    if (message.reference && message.reference.messageId) {
+      try {
+        const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
+        if (repliedMsg && repliedMsg.content) {
+          const repliedAuthor = repliedMsg.member?.displayName || repliedMsg.author.username;
+          if (repliedMsg.author.id !== message.client.user.id) {
+            cleanText = `[Respondiendo a ${repliedAuthor}: "${repliedMsg.content}"] ` + cleanText;
+          } else {
+            cleanText = `[Respondiéndote a ti: "${repliedMsg.content}"] ` + cleanText;
+          }
+        }
+      } catch (e) {
+        console.error("No se pudo obtener el contexto del mensaje referenciado:", e.message);
+      }
+    }
+
+    // Guardar el mensaje en el historial (Layla recuerda de qué hablaron, aunque no responda)
+    stateManager.appendToHistory(channelId, 'user', cleanText, userId, authorName);
+    stateManager.resetHistoryIdleTimer(channelId);
+
+    // Banderas y función de Extracción automática de memorias (cada 15 mensajes)
+    const shouldExtract = memoryManager.incrementMessageCount(guildId, userId);
+    const executeMemoryExtraction = () => {
+      const historyContents = stateManager.buildExtractionHistory(channelId, userId);
+      if (historyContents.length > 0) {
+        const historyBlock = historyContents.join('\n');
+        
+        // Construir lista de relaciones protegidas para blindar la extracción
+        const allRels = memoryManager.getAllRelationships(guildId);
+        const protectedRelationships = Object.entries(allRels)
+          .map(([uid, rel]) => `- ${rel.name}: ${rel.relationship}`)
+          .join('\n');
+
+        // Ejecutar en segundo plano
+        aiService.extractFactsFromHistory(historyBlock, authorName, protectedRelationships)
+          .then(facts => memoryManager.processExtractedFacts(guildId, userId, facts))
+          .catch(err => console.warn('[MEMORIA] Error en extracción automática:', err.message));
+      }
+    };
+
+    // ==================== EVALUAR RESPUESTA ====================
     if (!stateManager.isChannelActive(channelId)) {
       let shouldRespond = false;
 
@@ -44,7 +93,7 @@ export default {
 
       // 2. Verificar Respuesta a Layla (Reply Setting)
       let isReplyToLaylaValid = false;
-      if (!shouldRespond && isReplyToLayla && guildPromptManager.getReplySetting(message.guild.id)) {
+      if (!shouldRespond && isReplyToLayla && guildPromptManager.getReplySetting(guildId)) {
         try {
           if (message.mentions.repliedUser && message.mentions.repliedUser.id === message.client.user.id) {
             isReplyToLaylaValid = true;
@@ -54,7 +103,7 @@ export default {
 
       // 3. Verificar Palabras Detonantes (Triggers)
       if (!shouldRespond && !isReplyToLaylaValid) {
-        const triggers = guildPromptManager.getTriggers(message.guild.id);
+        const triggers = guildPromptManager.getTriggers(guildId);
         if (triggers && triggers.length > 0) {
           for (const t of triggers) {
             if (!t.word) continue;
@@ -90,11 +139,13 @@ export default {
           const emojis = ['👀', '✨', '💤', '🌸', '🎶', '🤷‍♀️', '💖', '😜', '🔥'];
           const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
           await message.react(randomEmoji).catch(() => { });
+          if (shouldExtract) executeMemoryExtraction();
           return;
         }
       }
 
       if (!shouldRespond) {
+        if (shouldExtract) executeMemoryExtraction();
         return; // Ignorar por completo si no hay razón para responder
       }
 
@@ -107,25 +158,8 @@ export default {
     await message.channel.sendTyping();
 
     try {
-      let incomingText = resolveMentionsInContent(message) || message.content;
-      const authorName = message.member?.displayName || message.author.username;
-
-      // DETECCIÓN DE RESPUESTAS (REPLY CONTEXT)
-      if (message.reference && message.reference.messageId) {
-        try {
-          const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
-          if (repliedMsg && repliedMsg.content) {
-            const repliedAuthor = repliedMsg.member?.displayName || repliedMsg.author.username;
-            if (repliedMsg.author.id !== message.client.user.id) {
-              incomingText = `[Respondiendo a ${repliedAuthor}: "${repliedMsg.content}"] ` + incomingText;
-            } else {
-              incomingText = `[Respondiéndote a ti: "${repliedMsg.content}"] ` + incomingText;
-            }
-          }
-        } catch (e) {
-          console.error("No se pudo obtener el contexto del mensaje referenciado:", e.message);
-        }
-      }
+      // Usar el texto limpio como base para la inyección de contexto
+      let incomingText = cleanText;
 
       // PROXY VISUAL: Procesar imágenes si existen (Solo si no estamos en Modo Ollama estricto)
       if (message.attachments.size > 0 && !CONFIG.OLLAMA_ONLY) {
@@ -147,9 +181,23 @@ export default {
         incomingText += injectedContext;
       }
 
-      // Guardar el mensaje del usuario en el historial
-      stateManager.appendToHistory(channelId, 'user', incomingText, message.author.id, authorName);
-      stateManager.resetHistoryIdleTimer(channelId);
+      // ==================== SISTEMA DE MEMORIA ====================
+      // Capa 1: Relaciones (SIEMPRE se inyectan, prioridad alta)
+      const relationshipContext = memoryManager.buildRelationshipContext(guildId, userId);
+      if (relationshipContext) {
+        incomingText = `${relationshipContext}\n${incomingText}`;
+      }
+
+      // Capa 2: Memorias vectoriales (solo si son relevantes al tema)
+      try {
+        const relevantMemories = await memoryManager.getRelevantMemories(guildId, userId, message.content);
+        const memoryContext = memoryManager.buildMemoryContext(relevantMemories);
+        if (memoryContext) {
+          incomingText = `${memoryContext}\n${incomingText}`;
+        }
+      } catch (e) {
+        // Si falla el embedding, no pasa nada. Layla responde sin memorias.
+      }
 
       // El flujo ahora siempre pasará por el sistema de sesiones (Live API)
       // Incluso si el canal está inactivo globalmente, las menciones y detonantes
@@ -311,6 +359,11 @@ export default {
           stateManager.resetLiveSession(channelId, { clearHandle: true });
         } else {
           stateManager.resetLiveIdleTimer(channelId);
+        }
+
+        // Al finalizar de responder y liberar recursos, procedemos con la memoria silenciosamente
+        if (shouldExtract) {
+          executeMemoryExtraction();
         }
       });
     } catch (error) {

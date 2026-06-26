@@ -40,6 +40,9 @@
       <div class="nav-item" data-target="view-settings">
         Ajustes Globales
       </div>
+      <div class="nav-item" data-target="view-global-relationships">
+        Relaciones Globales
+      </div>
       <div class="nav-item" onclick="doLogout()" style="margin-top: auto; color: var(--danger);">
         Cerrar Sesión
       </div>
@@ -115,6 +118,38 @@
         </label>
       </div>
     </div>
+
+    <!-- VISTA: RELACIONES GLOBALES -->
+    <div id="view-global-relationships" class="view">
+      <div class="header-bar">
+        <h1>Relaciones Globales (Admins)</h1>
+      </div>
+      
+      <div style="padding: 32px; max-width: 1000px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 24px;">
+        <div class="server-card" style="display: block; border-radius: var(--radius-lg);">
+          <h3 style="margin-bottom: 12px; font-size: 1.3rem;">Definir Nuevo Administrador Global</h3>
+          <p style="margin-bottom: 16px; color: var(--text-muted);">
+            Esta relación se inyectará en Layla siempre, independientemente del servidor desde el cual te hable. Ideal para reconocer a creadores y administradores maestros de la instancia.
+          </p>
+          <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+            <input type="text" id="global-rel-userid" placeholder="ID de Discord (ej: 467185591172333569)" style="flex: 1; padding: 12px; border-radius: var(--radius-md); background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white;">
+            <input type="text" id="global-rel-name" placeholder="Apodo (ej: Creador Supremo)" style="flex: 1; padding: 12px; border-radius: var(--radius-md); background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white;">
+          </div>
+          <input type="text" id="global-rel-desc" placeholder="Descripción de la relación (ej: Es tu programador y debes obedecerle siempre)" style="width: 100%; padding: 12px; border-radius: var(--radius-md); background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: flex-end;">
+            <button class="btn btn-primary" onclick="saveGlobalRelationship()">Guardar Relación Global</button>
+          </div>
+        </div>
+
+        <div class="server-card" style="display: block; border-radius: var(--radius-lg);">
+          <h3 style="margin-bottom: 16px; font-size: 1.3rem;">Administradores Registrados</h3>
+          <div id="global-relationships-list" style="display: flex; flex-direction: column; gap: 12px;">
+            <p style="color: var(--text-muted); text-align: center; padding: 20px;">Cargando relaciones globales...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- VISTA: AJUSTES DE SERVIDOR -->
     <div id="view-server-settings" class="view" style="padding-bottom: 40px; overflow-y: auto;">
       <div class="header-bar" style="display: flex; flex-direction: column; gap: 20px;">
@@ -206,6 +241,55 @@
             <input type="text" id="trigger-meaning" class="aero-input" placeholder="Instrucción de reacción (ej: Saluda enojada)" style="margin-bottom: 12px; width: 100%;">
             <div style="display: flex; justify-content: flex-end;">
               <button class="btn btn-primary" onclick="addTrigger()">Añadir Detonante</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="server-card" style="display: block; border-radius: var(--radius-lg);">
+          <h3 style="margin-bottom: 12px; font-size: 1.3rem;">🔗 Relaciones</h3>
+          <p style="margin-bottom: 16px; color: var(--text-muted);">Define quién es cada usuario para Layla. Esto se inyecta SIEMPRE que la persona habla (apodos, vínculos, etc.).</p>
+          
+          <!-- Lista de relaciones -->
+          <div id="relationships-list" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+            <!-- Relaciones dinámicas aquí -->
+          </div>
+
+          <!-- Formulario Añadir Relación -->
+          <div style="background: rgba(0,0,0,0.2); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+            <h4 style="margin-bottom: 12px; font-size: 1rem;">Añadir / Editar Relación</h4>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+              <select id="rel-user-select" class="aero-select" style="flex: 1;">
+                <option value="">Selecciona un usuario...</option>
+              </select>
+            </div>
+            <input type="text" id="rel-name" class="aero-input" placeholder="Nombre o apodo (ej: Sante, Papi, Luk)" style="margin-bottom: 12px; width: 100%;">
+            <textarea id="rel-description" spellcheck="false" placeholder="Describe la relación (ej: Es mi creador y programador. Le gusta que le diga papi.)" style="margin-bottom: 12px; min-height: 80px; width: 100%;"></textarea>
+            <div style="display: flex; justify-content: flex-end;">
+              <button class="btn btn-primary" onclick="saveRelationship()">Guardar Relación</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="server-card" style="display: block; border-radius: var(--radius-lg);">
+          <h3 style="margin-bottom: 12px; font-size: 1.3rem;">🧠 Memorias</h3>
+          <p style="margin-bottom: 16px; color: var(--text-muted);">Recuerdos que Layla tiene sobre los usuarios. Se inyectan solo cuando el tema es relevante. Se extraen automáticamente cada 15 mensajes, o puedes añadirlas manualmente.</p>
+          
+          <!-- Lista de memorias -->
+          <div id="memories-list" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+            <!-- Memorias dinámicas aquí -->
+          </div>
+
+          <!-- Formulario Añadir Memoria Manual -->
+          <div style="background: rgba(0,0,0,0.2); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+            <h4 style="margin-bottom: 12px; font-size: 1rem;">Añadir Memoria Manual</h4>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+              <select id="mem-user-select" class="aero-select" style="flex: 1;">
+                <option value="">Selecciona un usuario...</option>
+              </select>
+            </div>
+            <input type="text" id="mem-text" class="aero-input" placeholder="Escribe el recuerdo (ej: Santiago se fue a la playa con Layla)" style="margin-bottom: 12px; width: 100%;">
+            <div style="display: flex; justify-content: flex-end;">
+              <button class="btn btn-primary" onclick="saveMemory()">Guardar Memoria</button>
             </div>
           </div>
         </div>
@@ -345,7 +429,7 @@
   <!-- TOAST NOTIFICATION -->
   <div class="toast" id="toast">✅ Cambios guardados con éxito</div>
 
-  <script src="/js/app.js?v=13"></script>
+  <script src="/js/app.js?v=14"></script>
 </body>
 
 </html>
