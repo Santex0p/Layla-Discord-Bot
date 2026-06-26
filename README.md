@@ -36,7 +36,7 @@ Layla is a Discord Bot that provides Voice Interactions (via Gemini Live API and
    *   `OLLAMA_ONLY`: Set to `true` to disable Gemini and use ONLY Ollama for text (Voice mode will be disabled).
    *   `MEDIA_DOMAIN`: Domain used by the bot to send audio/image links in Discord (e.g., `media.yourdomain.com`).
    *   `DASHBOARD_DOMAIN`: The exact domain used to access the web panel (e.g., `dashboard.yourdomain.com`). Access from other hosts is blocked.
-   *   `DEFAULT_VOSK_LANG`: Default language code for voice recognition (e.g., `es`, `en`, `fr`).
+   *   `DEFAULT_LANG`: Default language code for voice recognition and AI generation (e.g., `es`, `en`, `fr`).
 
 3. **Start the Bot:**
    ```bash

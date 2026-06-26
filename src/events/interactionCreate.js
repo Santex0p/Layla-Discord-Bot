@@ -24,7 +24,8 @@ export default {
 
     // Auto-registrar servidor en la base de datos de prompts
     if (interaction.guild) {
-      guildPromptManager.ensureGuildRegistered(interaction.guildId, interaction.guild.name);
+      const iconUrl = interaction.guild.iconURL({ dynamic: true, size: 128 });
+      guildPromptManager.ensureGuildRegistered(interaction.guildId, interaction.guild.name, iconUrl);
     }
 
     const { commandName } = interaction;

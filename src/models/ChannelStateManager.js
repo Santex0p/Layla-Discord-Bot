@@ -86,10 +86,30 @@ class ChannelStateManager {
         quotaBackoffUntil: 0,
         quotaRetryTimer: null,
         voiceMode: false,
+        textOpportunities: 0,
       };
       this.liveChannelStates.set(channelId, state);
     }
     return state;
+  }
+
+  setTextOpportunities(channelId, count) {
+    const state = this.getLiveChannelState(channelId);
+    state.textOpportunities = count;
+  }
+
+  hasTextOpportunities(channelId) {
+    const state = this.getLiveChannelState(channelId);
+    return state.textOpportunities > 0;
+  }
+
+  consumeTextOpportunity(channelId) {
+    const state = this.getLiveChannelState(channelId);
+    if (state.textOpportunities > 0) {
+      state.textOpportunities--;
+      return true;
+    }
+    return false;
   }
 
   enqueueChannelResponse(channelId, task) {

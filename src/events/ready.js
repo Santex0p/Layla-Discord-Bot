@@ -1,3 +1,5 @@
+import guildPromptManager from '../models/GuildPromptManager.js';
+
 export default {
   name: 'clientReady',
   once: true,
@@ -9,5 +11,11 @@ export default {
     } catch (e) {
       console.warn('No se pudo obtener client.application.id:', e);
     }
+
+    // Registrar/actualizar información de todos los servidores en los que está el bot
+    client.guilds.cache.forEach(guild => {
+      const iconUrl = guild.iconURL({ dynamic: true, size: 128 });
+      guildPromptManager.ensureGuildRegistered(guild.id, guild.name, iconUrl);
+    });
   }
 };

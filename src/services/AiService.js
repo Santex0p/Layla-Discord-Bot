@@ -72,13 +72,19 @@ class AiService {
 
   async generateTextReply(text, channelId, userId, guildId) {
     const historyContents = stateManager.buildHistoryContents(channelId, userId);
-    const contents = historyContents.length ? [...historyContents, text] : text;
+    
+    let promptText = text;
+    if (historyContents.length > 0) {
+      promptText = '--- HISTORIAL RECIENTE ---\n' + 
+                   historyContents.join('\n') + 
+                   '\n\n--- MENSAJE ACTUAL ---\n' + text;
+    }
 
     const basePrompt = guildPromptManager.getPrompt(guildId);
 
     const response = await this.ai.models.generateContent({
       model: CONFIG.TEXT_MODEL,
-      contents,
+      contents: promptText,
       config: {
         systemInstruction: basePrompt,
         safetySettings: [

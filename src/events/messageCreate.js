@@ -15,6 +15,8 @@ import { CONFIG } from '../config/constants.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+
+
 export default {
   name: 'messageCreate',
   once: false,
@@ -23,13 +25,82 @@ export default {
     if (!message.guild) return; // Solo responder en servidores
 
     const channelId = message.channel.id;
+    let isTriggerActivated = false;
+    let injectedContext = '';
+
+    const isReplyToLayla = message.reference && message.reference.messageId;
+    const isRawMention = message.mentions.users.has(message.client.user.id) &&
+      (!isReplyToLayla || message.content.includes(`<@${message.client.user.id}>`) || message.content.includes(`<@!${message.client.user.id}>`));
+
     if (!stateManager.isChannelActive(channelId)) {
-      // Verificar si la mencionaron y el ajuste global está activado
+      let shouldRespond = false;
+
+      // 1. Verificar Mención Directa (Ignorando las menciones que provienen de un Reply)
       const respondOnMention = globalSettingsManager.get('RESPOND_ON_MENTION');
-      const isMentioned = message.mentions.has(message.client.user.id);
-      
-      if (!isMentioned || !respondOnMention) {
-        return; // Ignorar por completo
+
+      if (isRawMention && respondOnMention) {
+        shouldRespond = true;
+      }
+
+      // 2. Verificar Respuesta a Layla (Reply Setting)
+      let isReplyToLaylaValid = false;
+      if (!shouldRespond && isReplyToLayla && guildPromptManager.getReplySetting(message.guild.id)) {
+        try {
+          if (message.mentions.repliedUser && message.mentions.repliedUser.id === message.client.user.id) {
+            isReplyToLaylaValid = true;
+          }
+        } catch (e) { }
+      }
+
+      // 3. Verificar Palabras Detonantes (Triggers)
+      if (!shouldRespond && !isReplyToLaylaValid) {
+        const triggers = guildPromptManager.getTriggers(message.guild.id);
+        if (triggers && triggers.length > 0) {
+          for (const t of triggers) {
+            if (!t.word) continue;
+            // Validar canal
+            if (t.channels && t.channels.length > 0 && !t.channels.includes(channelId)) {
+              continue; // Canal no permitido para este detonante
+            }
+
+            // Extraer las palabras separadas por coma, limpiarlas de espacios y escapar caracteres
+            const words = t.word.split(',').map(w => w.trim()).filter(Boolean);
+            if (words.length === 0) continue;
+
+            const escapedWords = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+
+            const regex = new RegExp(`(?:^|\\s)(?:${escapedWords})(?:$|\\s|\\W)`, 'i');
+            if (regex.test(message.content)) {
+              console.log(`⚡ [TRIGGER] Detonante activado en canal ${channelId} ('${t.word}')`);
+              shouldRespond = true;
+              isTriggerActivated = true;
+              injectedContext = `\n\n(Contexto interno: El usuario usó la palabra detonante "${t.word}". Por favor, tu respuesta a este mensaje debe ser única y exclusivamente cumplir con esta instrucción: "${t.meaning}". No añadas ningún comentario extra.)`;
+              break;
+            }
+          }
+        }
+      }
+
+      // 4. Evaluar Oportunidades si es un Reply sin Mención Directa
+      if (isReplyToLaylaValid && !shouldRespond && !isTriggerActivated) {
+        if (stateManager.consumeTextOpportunity(channelId)) {
+          shouldRespond = true;
+        } else {
+          // Sin oportunidades: reaccionar con un emoji random y abortar
+          const emojis = ['👀', '✨', '💤', '🌸', '🎶', '🤷‍♀️', '💖', '😜', '🔥'];
+          const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+          await message.react(randomEmoji).catch(() => { });
+          return;
+        }
+      }
+
+      if (!shouldRespond) {
+        return; // Ignorar por completo si no hay razón para responder
+      }
+
+      // 5. Otorgar oportunidades si fue un detonante o mención directa
+      if (isTriggerActivated || isRawMention) {
+        stateManager.setTextOpportunities(channelId, 1);
       }
     }
 
@@ -38,6 +109,23 @@ export default {
     try {
       let incomingText = resolveMentionsInContent(message) || message.content;
       const authorName = message.member?.displayName || message.author.username;
+
+      // DETECCIÓN DE RESPUESTAS (REPLY CONTEXT)
+      if (message.reference && message.reference.messageId) {
+        try {
+          const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
+          if (repliedMsg && repliedMsg.content) {
+            const repliedAuthor = repliedMsg.member?.displayName || repliedMsg.author.username;
+            if (repliedMsg.author.id !== message.client.user.id) {
+              incomingText = `[Respondiendo a ${repliedAuthor}: "${repliedMsg.content}"] ` + incomingText;
+            } else {
+              incomingText = `[Respondiéndote a ti: "${repliedMsg.content}"] ` + incomingText;
+            }
+          }
+        } catch (e) {
+          console.error("No se pudo obtener el contexto del mensaje referenciado:", e.message);
+        }
+      }
 
       // PROXY VISUAL: Procesar imágenes si existen (Solo si no estamos en Modo Ollama estricto)
       if (message.attachments.size > 0 && !CONFIG.OLLAMA_ONLY) {
@@ -55,9 +143,17 @@ export default {
         incomingText = incomingText.trim();
       }
 
+      if (injectedContext) {
+        incomingText += injectedContext;
+      }
+
       // Guardar el mensaje del usuario en el historial
       stateManager.appendToHistory(channelId, 'user', incomingText, message.author.id, authorName);
       stateManager.resetHistoryIdleTimer(channelId);
+
+      // El flujo ahora siempre pasará por el sistema de sesiones (Live API)
+      // Incluso si el canal está inactivo globalmente, las menciones y detonantes
+      // abrirán el túnel temporalmente para procesar el mensaje con el contexto completo.
 
       await stateManager.enqueueChannelResponse(channelId, async () => {
         let voiceResponse = null;
@@ -70,6 +166,11 @@ export default {
           needsTextFallback = true;
         } else if (stateManager.getLiveDisabledReason() || aiService.isLiveQuotaBackoffActive(channelId)) {
           console.warn(`🚫 [FALLBACK] Live inactivo (Razón: ${stateManager.getLiveDisabledReason() || 'Cuota excedida'}). Usando fallback de texto.`);
+          needsTextFallback = true;
+        } else if (!stateManager.isChannelActive(channelId) && !isRawMention) {
+          // Si el canal está inactivo y NO es una mención explícita (@Layla), usamos el modelo de texto.
+          // Esto maneja Triggers y Replies sin forzar el modelo de audio.
+          // Las menciones explícitas (@Layla) irán al modelo Live para generar una nota de voz.
           needsTextFallback = true;
         } else {
           // ------------------------------------------------------------------
@@ -126,9 +227,7 @@ export default {
             try {
               const ollamaResult = await aiService.generateOllamaReply(incomingText, channelId, message.author.id, message.guild?.id);
               replyText = ollamaResult.transcript;
-              console.log('🤖 [OLLAMA ONLY] Ollama procesó el texto localmente.');
             } catch (ollamaError) {
-              console.error('❌ [OLLAMA ONLY] Ollama falló:', ollamaError.message);
               replyText = '¡Uy! El servidor local de Ollama falló. ¿Está encendido?';
             }
           }
@@ -146,11 +245,12 @@ export default {
         }
 
         // ------------------------------------------------------------------
-        // PASO 4: PROCESAR ÉXITO DE LIVE API (AUDIO)
+        // PASO 4: PROCESAR ÉXITO DE LIVE API
         // ------------------------------------------------------------------
         const { audioBuffer, mimeType, transcript, usageMetadata } = voiceResponse;
         const liveState = stateManager.getLiveChannelState(channelId);
 
+        // Si el canal SÍ está activo (Autotalk), Layla responde con Notas de Voz (Audio URL)
         if (audioBuffer?.length) {
           if (!isPcmMimeType(mimeType)) {
             console.warn(`⚠️ [LIVE] MIME inesperado para MP3: ${mimeType}. Se intentará codificar igual.`);
@@ -160,7 +260,7 @@ export default {
           const fileId = `layla_${Date.now()}`;
           const audiosDir = '/app/data/audios';
 
-          // Asegurar que el directorio exista (en docker suele existir, pero por seguridad)
+          // Asegurar que el directorio exista
           try { await fs.mkdir(audiosDir, { recursive: true }); } catch (e) { }
 
           const mp3Path = path.join(audiosDir, `${fileId}.mp3`);
@@ -175,8 +275,8 @@ export default {
           }
 
           if (!CONFIG.MEDIA_DOMAIN) {
-            console.error('⚠️ [ENV] Error: No se ha configurado la variable MEDIA_DOMAIN en el archivo .env. Imposible generar y enviar el enlace de audio.');
-            await message.reply('Oops, mi administrador no ha configurado mi dominio de archivos, así que no puedo enviarte el audio. Revisa los logs del servidor.');
+            console.error('⚠️ [ENV] Error: No se ha configurado la variable MEDIA_DOMAIN en el archivo .env.');
+            await message.reply('Oops, mi administrador no ha configurado mi dominio de archivos, así que no puedo enviarte el audio.');
           } else {
             const audioUrl = `https://${CONFIG.MEDIA_DOMAIN}/${fileId}.mp3`;
             await message.reply(audioUrl);
@@ -214,7 +314,7 @@ export default {
         }
       });
     } catch (error) {
-      console.error('[ERROR GENERAL MESSAGE CREATE]:', error);
+      console.error('[ERROR GENERAL MESSAGE CREATE]:', error.stack || error);
       await message.reply('¡Uy! Mi sistema falló de forma inesperada. ¡Lo siento!').catch(() => { });
     }
   }

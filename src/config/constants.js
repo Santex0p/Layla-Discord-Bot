@@ -11,7 +11,7 @@ export const CONFIG = {
   OLLAMA_ONLY: process.env.OLLAMA_ONLY === 'true',
   MEDIA_DOMAIN: process.env.MEDIA_DOMAIN,
   DASHBOARD_DOMAIN: process.env.DASHBOARD_DOMAIN,
-  DEFAULT_VOSK_LANG: process.env.DEFAULT_VOSK_LANG || 'es',
+  DEFAULT_LANG: process.env.DEFAULT_LANG || 'es',
 
   // Instrucciones
   LIVE_SYSTEM_INSTRUCTION: `Rol: Layla (chica humana real, chat voz).

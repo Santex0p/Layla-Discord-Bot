@@ -5,35 +5,43 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Layla - Control Center</title>
-  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/style.css?v=12">
 </head>
 
 <body>
+  <!-- AERO GLASS BACKGROUND -->
+  <div class="aero-background">
+    <div class="aero-blob blob-purple"></div>
+    <div class="aero-blob blob-cyan"></div>
+    <div class="aero-blob blob-accent"></div>
+  </div>
 
   <!-- SIDEBAR -->
   <aside class="sidebar hidden" id="sidebar">
-    <div class="profile">
+    <div class="profile" onclick="openBotProfile()" style="cursor: pointer; transition: transform 0.2s;"
+      onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
       <div class="profile-img">
         <img src="/img/layla-avatar.png" alt="Layla Avatar" id="layla-avatar"
           onerror="this.src='https://i.imgur.com/8QG9gXv.png'">
       </div>
       <h2>Layla Core</h2>
       <p>
-      <div class="status-dot" id="global-status"></div> Sistema Online</p>
+        <span class="status-dot" id="global-status"></span> En linea
+      </p>
     </div>
 
     <nav class="nav-menu">
       <div class="nav-item active" data-target="view-servers">
-        🖥️ Servidores
+        Servidores
       </div>
       <div class="nav-item" data-target="view-console">
-        ⚡ Consola en Vivo
+        Consola en Vivo
       </div>
       <div class="nav-item" data-target="view-settings">
-        ⚙️ Ajustes Globales
+        Ajustes Globales
       </div>
       <div class="nav-item" onclick="doLogout()" style="margin-top: auto; color: var(--danger);">
-        🚪 Cerrar Sesión
+        Cerrar Sesión
       </div>
     </nav>
   </aside>
@@ -72,7 +80,7 @@
     </div>
 
     <!-- VISTA: CONSOLA -->
-    <div id="view-console" class="view">
+    <div id="view-console" class="view" style="position: relative;">
       <div class="header-bar" style="display: flex; justify-content: space-between;">
         <h1>Terminal del Sistema</h1>
         <button class="btn btn-secondary" onclick="document.getElementById('logs').innerHTML=''">Limpiar</button>
@@ -80,6 +88,14 @@
       <div class="console-container" id="console-scroll">
         <div id="logs"></div>
       </div>
+      <button id="scroll-to-bottom-btn" class="scroll-bottom-btn hidden" onclick="scrollToBottom()" title="Ir al final">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <polyline points="19 12 12 19 5 12"></polyline>
+        </svg>
+        <span id="new-log-indicator" class="new-log-dot hidden"></span>
+      </button>
     </div>
 
     <!-- VISTA: AJUSTES -->
@@ -99,44 +115,214 @@
         </label>
       </div>
     </div>
-
-  </main>
-
-  <!-- MODAL: EDITAR PROMPT -->
-  <div class="modal-overlay" id="prompt-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <div>
-          <h2 class="modal-title" id="modal-server-name">Nombre del Servidor</h2>
-          <span class="server-id" id="modal-server-id">ID: 0000000</span>
-        </div>
-        <button class="modal-close" onclick="closeModal()">×</button>
-      </div>
-      <div class="modal-body">
-        <p style="margin-bottom: 12px; color: var(--text-muted);">Edita las instrucciones del sistema (Personalidad).
-          Los cambios se aplicarán al instante.</p>
-        <textarea id="prompt-textarea" spellcheck="false"></textarea>
-
-        <div class="language-selector-section">
-          <label for="language-select">🌐 Idioma de Reconocimiento de Voz (Vosk)</label>
-          <p class="language-description">Selecciona el idioma principal de este servidor para la detección del wake word.</p>
-          <select id="language-select">
-            <option value="">Cargando idiomas...</option>
-          </select>
+    <!-- VISTA: AJUSTES DE SERVIDOR -->
+    <div id="view-server-settings" class="view" style="padding-bottom: 40px; overflow-y: auto;">
+      <div class="header-bar" style="display: flex; flex-direction: column; gap: 20px;">
+        <button class="btn btn-secondary" style="align-self: flex-start; gap: 8px; padding: 8px 16px;"
+          onclick="closeServerSettings()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          Volver a Servidores
+        </button>
+        <div style="display: flex; align-items: center; gap: 20px;">
+          <div class="server-icon" id="settings-server-icon"
+            style="width: 72px; height: 72px; font-size: 2.5rem; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">?</div>
+          <div>
+            <h2 class="modal-title" id="settings-server-name" style="font-size: 2rem;">Nombre del Servidor</h2>
+            <span class="server-id" id="settings-server-id">ID: 0000000</span>
+          </div>
         </div>
       </div>
-      <div class="modal-footer" style="justify-content: space-between;">
-        <div>
-          <button class="btn btn-warning" onclick="resetDefaultPrompt()">Restablecer Base</button>
-          <button class="btn btn-danger" onclick="leaveServer()" style="margin-left: 8px;">Expulsar Layla</button>
+
+      <div
+        style="padding: 32px; max-width: 1000px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 24px;">
+
+        <div class="server-card" style="display: block; border-radius: var(--radius-lg);">
+          <h3 style="margin-bottom: 12px; font-size: 1.3rem;">Personalidad e Instrucciones</h3>
+          <p style="margin-bottom: 16px; color: var(--text-muted);">Edita las instrucciones del sistema (Personalidad).
+            Los cambios se aplicarán al instante.</p>
+          <textarea id="prompt-textarea" spellcheck="false" style="margin-bottom: 20px; min-height: 250px;"></textarea>
+          <div style="display: flex; gap: 12px; justify-content: flex-end;">
+            <button class="btn btn-secondary" onclick="resetDefaultPrompt()">Restablecer Base</button>
+            <button class="btn btn-primary" onclick="savePrompt()">Guardar Cambios</button>
+          </div>
         </div>
-        <div>
-          <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-          <button class="btn btn-primary" onclick="savePrompt()">Guardar Cambios</button>
+
+        <div class="server-card" style="display: block; border-radius: var(--radius-lg);">
+          <div class="language-selector-section" style="margin-top: 0; border-top: none; padding-top: 0;">
+            <h3 style="margin-bottom: 8px; font-size: 1.1rem;">🌐 Idioma de Reconocimiento de Voz (Vosk)</h3>
+            <p class="language-description" style="margin-bottom: 16px;">Selecciona el idioma principal de este servidor
+              para la detección del wake word.</p>
+            <div class="custom-select-wrapper">
+              <select id="language-select" class="aero-select">
+                <option value="">Cargando idiomas...</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="server-card" style="display: block; border-radius: var(--radius-lg);">
+          <div class="setting-row" style="margin-bottom: 0;">
+            <div class="setting-info">
+              <h3 style="margin-bottom: 8px; font-size: 1.1rem;">💬 Responder a Usuarios</h3>
+              <p style="color: var(--text-muted); font-size: 0.9rem;">Si un usuario responde directamente a un mensaje de Layla, ella le contestará de forma aislada.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="reply-layla-toggle" onchange="toggleReplySetting(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="server-card" style="display: block; border-radius: var(--radius-lg);">
+          <h3 style="margin-bottom: 12px; font-size: 1.3rem;">⚡ Palabras Detonantes (Triggers)</h3>
+          <p style="margin-bottom: 16px; color: var(--text-muted);">Layla reaccionará automáticamente si lee estas palabras exactas en el chat, sin necesidad de tener el modo activo encendido.</p>
+          
+          <!-- Lista de detonantes -->
+          <div id="triggers-list" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+            <!-- Triggers dinámicos aquí -->
+          </div>
+
+          <!-- Formulario Añadir -->
+          <div style="background: rgba(0,0,0,0.2); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+            <h4 style="margin-bottom: 12px; font-size: 1rem;">Añadir Nuevo Detonante</h4>
+            <div style="margin-bottom: 12px;">
+              <p style="font-size: 0.9rem; margin-bottom: 8px; color: var(--text-muted);">Palabras que activan este detonante:</p>
+              <div id="trigger-words-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; min-height: 28px;"></div>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="trigger-word-input" class="aero-input" placeholder="Añade una palabra y presiona +" style="flex: 1;" onkeypress="if(event.key === 'Enter') addTriggerWord()">
+                <button class="btn btn-secondary" onclick="addTriggerWord()">+</button>
+              </div>
+            </div>
+            <div style="margin-bottom: 12px;">
+              <p style="font-size: 0.9rem; margin-bottom: 8px; color: var(--text-muted);">Canales Permitidos (Si no seleccionas ninguno, se requerirá al menos uno obligatoriamente):</p>
+              <div id="trigger-channels-container" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 150px; overflow-y: auto; padding: 8px; background: rgba(0,0,0,0.1); border-radius: var(--radius-sm); border: 1px solid var(--glass-border);">
+                <!-- Checkboxes generados dinámicamente -->
+                <span style="color: var(--text-muted); font-size: 0.85rem;">Cargando canales...</span>
+              </div>
+            </div>
+            <input type="text" id="trigger-meaning" class="aero-input" placeholder="Instrucción de reacción (ej: Saluda enojada)" style="margin-bottom: 12px; width: 100%;">
+            <div style="display: flex; justify-content: flex-end;">
+              <button class="btn btn-primary" onclick="addTrigger()">Añadir Detonante</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="server-card"
+          style="border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.05); display: block; border-radius: var(--radius-lg);">
+          <h3 style="color: var(--danger); margin-bottom: 12px;">Zona de Peligro</h3>
+          <p style="color: var(--text-muted); margin-bottom: 16px;">Expulsar a Layla del servidor. Esta acción es
+            irreversible y tendrás que volver a invitarla manualmente.</p>
+          <button class="btn btn-danger" onclick="leaveServer()">Expulsar Layla</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- VISTA: PERFIL DEL BOT -->
+    <div id="view-bot-profile" class="view" style="padding-bottom: 40px; overflow-y: auto;">
+      <div class="header-bar" style="display: flex; flex-direction: column; gap: 20px;">
+        <button class="btn btn-secondary" style="align-self: flex-start; gap: 8px; padding: 8px 16px;"
+          onclick="closeBotProfile()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          Volver
+        </button>
+      </div>
+
+      <div class="profile-container" style="max-width: 900px; margin: 0 auto; padding: 0 20px;">
+
+        <!-- Banner and Avatar Section -->
+        <div style="position: relative; margin-bottom: 80px;">
+          <div class="profile-banner aero-card"
+            style="height: 200px; border-radius: var(--radius-lg); background: linear-gradient(135deg, rgba(139, 92, 246, 0.4), rgba(56, 189, 248, 0.4)); display: flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: var(--glass-shadow); border: 1px solid var(--glass-border);">
+            <h1
+              style="font-size: 5rem; color: rgba(255,255,255,0.2); font-weight: 900; letter-spacing: 10px; font-family: 'Arial Black', sans-serif;">
+              LAYLA</h1>
+          </div>
+
+          <div style="position: absolute; bottom: -60px; left: 40px; display: flex; align-items: flex-end; gap: 24px;">
+            <div class="profile-avatar-large"
+              style="width: 150px; height: 150px; border-radius: 50%; border: 6px solid var(--background); background: var(--glass-bg); overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+              <img src="/img/layla-avatar.png" alt="Layla Avatar" style="width: 100%; height: 100%; object-fit: cover;"
+                onerror="this.src='https://i.imgur.com/8QG9gXv.png'">
+            </div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 250px 1fr; gap: 40px;">
+
+          <!-- Left Column (Stats & Details) -->
+          <div>
+            <div
+              style="display: flex; justify-content: space-around; text-align: center; margin-bottom: 30px; background: var(--glass-bg); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+              <div>
+                <div id="profile-servers-count" style="font-size: 1.5rem; font-weight: 700; color: var(--text-main);">0
+                </div>
+                <div
+                  style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; letter-spacing: 1px; text-transform: uppercase;">
+                  Servidores</div>
+              </div>
+              <div>
+                <div id="profile-uptime" style="font-size: 1.5rem; font-weight: 700; color: var(--text-main);">0h</div>
+                <div
+                  style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; letter-spacing: 1px; text-transform: uppercase;">
+                  Uptime</div>
+              </div>
+            </div>
+
+            <div class="profile-details-box aero-card"
+              style="background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+              <div>
+                <div
+                  style="font-size: 0.7rem; color: var(--accent); font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">
+                  Rol</div>
+                <div style="font-weight: 600;">Asistente de Voz Sarcástica</div>
+              </div>
+              <div style="height: 1px; background: var(--border-color);"></div>
+              <div>
+                <div
+                  style="font-size: 0.7rem; color: var(--info); font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">
+                  Núcleo</div>
+                <div style="font-weight: 600;">Vosk + Gemini API</div>
+              </div>
+              <div style="height: 1px; background: var(--border-color);"></div>
+              <div>
+                <div
+                  style="font-size: 0.7rem; color: var(--success); font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">
+                  Afiliación</div>
+                <div style="font-weight: 600;">Comunidad Discord</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column (Description & Actions) -->
+          <div>
+            <h1 style="font-size: 2.5rem; line-height: 1.1; margin-bottom: 16px;">Layla - Inteligencia Autónoma</h1>
+            <div style="display: flex; gap: 12px; margin-bottom: 24px;">
+              <button class="btn btn-primary" onclick="window.open('https://github.com', '_blank')"
+                style="background: linear-gradient(90deg, #ec4899, #8b5cf6);">Ver Repositorio</button>
+            </div>
+            <p style="font-size: 1.1rem; line-height: 1.6; color: var(--text-muted);">
+              Layla es una asistente virtual diseñada para interactuar mediante voz natural y humor.
+              Es conocida por su personalidad sarcástica, sus respuestas directas y su actitud relajada.
+              <br><br>
+              A diferencia de otros bots tradicionales, Layla se niega a comportarse como una IA genérica, prefiriendo
+              responder con intuición, bromas y un poco de actitud humana.
+            </p>
+          </div>
+
         </div>
       </div>
     </div>
-  </div>
+
+  </main>
+
 
   <!-- MODAL: CONFIRMAR EXPULSIÓN -->
   <div class="modal-overlay" id="confirm-modal">
@@ -159,8 +345,7 @@
   <!-- TOAST NOTIFICATION -->
   <div class="toast" id="toast">✅ Cambios guardados con éxito</div>
 
-  <!-- JAVASCRIPT -->
-  <script src="/js/app.js"></script>
+  <script src="/js/app.js?v=13"></script>
 </body>
 
 </html>

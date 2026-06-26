@@ -220,7 +220,6 @@ const server = http.createServer(async (req, res) => {
       const cookies = parseCookies(req);
       const hasAdmin = await authManager.hasAdmin();
       const isValidToken = await authManager.validateToken(cookies.LaylaAuth);
-      console.log(`[AUTH-DEBUG] hasAdmin=${hasAdmin}, isAuth=${isValidToken}, cookie=${cookies.LaylaAuth ? 'present' : 'none'}`);
       res.writeHead(200, { 
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
@@ -405,8 +404,38 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API GET: Obtener lista de canales de texto de un servidor
+  if (req.url.match(/^\/api\/servers\/[^/]+\/channels(\?.*)?$/) && req.method === 'GET') {
+    try {
+      const guildId = req.url.split('/')[3];
+      if (discordClient) {
+        const guild = discordClient.guilds.cache.get(guildId);
+        if (guild) {
+          // Filtrar solo canales de texto (tipo 0 en discord.js v14)
+          const channels = guild.channels.cache
+            .filter(c => c.type === 0 || c.type === 5 || c.type === 15) // Text = 0, News = 5, Forum = 15
+            .map(c => ({ id: c.id, name: c.name || 'sin-nombre' }));
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(channels));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Server not found in cache' }));
+        }
+      } else {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Discord client not ready' }));
+      }
+    } catch (error) {
+      console.error('[API] Error cargando canales:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
   // API POST: Actualizar el prompt de un servidor
-  if (req.url.startsWith('/api/servers/') && req.method === 'POST') {
+  if (req.url.match(/^\/api\/servers\/[^/]+$/) && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
     let body = '';
     req.on('data', chunk => {
@@ -524,6 +553,74 @@ const server = http.createServer(async (req, res) => {
         if (success) {
           // Pre-descargar el modelo en segundo plano si no existe
           voskModelManager.getModel(parsed.language).catch(() => {});
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Server not found' }));
+        }
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
+  // API POST: Actualizar configuración de Respuesta Directa a Layla
+  if (req.url.match(/^\/api\/servers\/[^/]+\/reply-setting$/) && req.method === 'POST') {
+    const guildId = req.url.split('/')[3];
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+      if (body.length > 4096) { req.destroy(); return; }
+    });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body);
+        if (typeof parsed.replyToLayla !== 'boolean') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'replyToLayla debe ser un booleano' }));
+          return;
+        }
+        const success = guildPromptManager.setReplySetting(guildId, parsed.replyToLayla);
+        if (success) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Server not found' }));
+        }
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
+  // API POST: Actualizar configuración de Detonantes (Triggers)
+  if (req.url.match(/^\/api\/servers\/[^/]+\/triggers$/) && req.method === 'POST') {
+    const guildId = req.url.split('/')[3];
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+      if (body.length > 512000) { req.destroy(); return; } // 500KB Max
+    });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body);
+        if (!Array.isArray(parsed.triggers)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'triggers debe ser un array' }));
+          return;
+        }
+        
+        // Validación básica
+        const validTriggers = parsed.triggers.filter(t => t.word && typeof t.word === 'string' && t.meaning && typeof t.meaning === 'string');
+
+        const success = guildPromptManager.setTriggers(guildId, validTriggers);
+        if (success) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true }));
         } else {
