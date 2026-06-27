@@ -2,7 +2,7 @@
     const navItems = document.querySelectorAll('.nav-item');
     let currentView = 'view-servers';
 
-    // Función para menú móvil
+    // FunciÃ³n para menÃº mÃ³vil
     window.toggleMobileMenu = function() {
       const sidebar = document.getElementById('sidebar');
       const overlay = document.getElementById('mobile-overlay');
@@ -20,12 +20,12 @@
       const targetView = document.getElementById(targetId);
       if (targetView) targetView.classList.add('active');
 
-      // Update sidebar selection — only touch main nav items, not server-nav-items
+      // Update sidebar selection â€” only touch main nav items, not server-nav-items
       if (targetId !== 'view-login' && targetId !== 'view-register') {
         // Handle Sidebar Menu Visibility
         if (targetId === 'view-server-container') {
           if (!currentEditingGuild) {
-            // Si el usuario recargó la página y se perdió el contexto del servidor, forzar al inicio.
+            // Si el usuario recargÃ³ la pÃ¡gina y se perdiÃ³ el contexto del servidor, forzar al inicio.
             targetId = 'view-servers';
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById('view-servers').classList.add('active');
@@ -45,7 +45,7 @@
         const activeNav = document.querySelector(`#main-nav-menu .nav-item[data-target="${targetId}"]`);
         if (activeNav) activeNav.classList.add('active');
         
-        // Cerrar sidebar en móviles tras hacer clic
+        // Cerrar sidebar en mÃ³viles tras hacer clic
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('mobile-overlay');
         if (sidebar) sidebar.classList.remove('open');
@@ -86,7 +86,7 @@
         const data = JSON.parse(text);
         
         if (data.error) {
-          customAlert('Atención', 'Error del servidor al verificar sesión: ' + data.error);
+          customAlert('AtenciÃ³n', 'Error del servidor al verificar sesiÃ³n: ' + data.error);
           return;
         }
         
@@ -135,7 +135,7 @@
         }
       } catch(e) {
         console.error("Auth check failed", e);
-        customAlert('Atención', "Error de conexión al verificar estado.");
+        customAlert('AtenciÃ³n', "Error de conexiÃ³n al verificar estado.");
       }
     }
 
@@ -156,13 +156,13 @@
     let currentEditingGuild = null;
     let voskCatalog = [];
 
-    // Cargar catálogo de idiomas Vosk al inicio
+    // Cargar catÃ¡logo de idiomas Vosk al inicio
     async function loadVoskCatalog() {
       try {
         const res = await fetch('/api/vosk/catalog');
         voskCatalog = await res.json();
       } catch (e) {
-        console.error('Error cargando catálogo Vosk:', e);
+        console.error('Error cargando catÃ¡logo Vosk:', e);
       }
     }
     loadVoskCatalog();
@@ -174,7 +174,7 @@
         const grid = document.getElementById('servers-grid');
         grid.innerHTML = '';
         if (Object.keys(data).length === 0) {
-          grid.innerHTML = '<div style="color: var(--text-muted); padding: 20px;">No tienes permisos de administrador en ningún servidor donde Layla esté instalada.</div>';
+          grid.innerHTML = '<div style="color: var(--text-muted); padding: 20px;">No tienes permisos de administrador en ningÃºn servidor donde Layla estÃ© instalada.</div>';
           return;
         }
 
@@ -227,7 +227,7 @@
         });
         if (res.ok) showToast();
       } catch (e) {
-        customAlert('Atención', 'Error al guardar ajuste');
+        customAlert('AtenciÃ³n', 'Error al guardar ajuste');
       }
     }
 
@@ -240,7 +240,7 @@
           document.getElementById('prompt-textarea').value = data.prompt;
         }
       } catch (e) {
-        customAlert('Atención', 'Error obteniendo el prompt por defecto');
+        customAlert('AtenciÃ³n', 'Error obteniendo el prompt por defecto');
       }
     }
 
@@ -292,7 +292,7 @@
       });
     }
 
-    function customConfirm(title, message, okText = 'Sí, confirmar') {
+    function customConfirm(title, message, okText = 'SÃ­, confirmar') {
       return new Promise((resolve) => {
         const modal = document.getElementById('confirm-modal');
         document.getElementById('confirm-modal-title').innerText = title;
@@ -321,9 +321,9 @@
     async function deleteServerData() {
       if (!currentEditingGuild) return;
       const confirmed = await customConfirm(
-        '¿Borrar todos los datos?',
-        '¿Estás seguro de que quieres borrar TODAS las memorias, relaciones y configuración de Layla en este servidor? Esto NO se puede deshacer.',
-        'Sí, borrar datos'
+        'Â¿Borrar todos los datos?',
+        'Â¿EstÃ¡s seguro de que quieres borrar TODAS las memorias, relaciones y configuraciÃ³n de Layla en este servidor? Esto NO se puede deshacer.',
+        'SÃ­, borrar datos'
       );
       if (confirmed) {
         executeDeleteServerData();
@@ -341,18 +341,18 @@
           closeServerSettings();
           showToast("Datos borrados exitosamente");
         } else {
-          customAlert('Atención', 'Error al borrar datos');
+          customAlert('AtenciÃ³n', 'Error al borrar datos');
         }
       } catch (e) {
-        customAlert('Atención', 'Error de conexión');
+        customAlert('AtenciÃ³n', 'Error de conexiÃ³n');
       }
     }
 
     window.confirmLeaveServer = async function() {
       const confirmed = await customConfirm(
-        '¿Salir del Servidor?',
-        '¿Estás seguro de que quieres que Layla abandone este servidor? Tendrás que volver a invitarla manualmente si quieres que vuelva.',
-        'Sí, que abandone el servidor'
+        'Â¿Salir del Servidor?',
+        'Â¿EstÃ¡s seguro de que quieres que Layla abandone este servidor? TendrÃ¡s que volver a invitarla manualmente si quieres que vuelva.',
+        'SÃ­, que abandone el servidor'
       );
       if (confirmed) {
         executeLeaveServer();
@@ -369,13 +369,13 @@
         if (res.ok) {
           closeServerSettings();
           loadServers(); // Recargar la lista
-          showToast("Layla abandonó el servidor exitosamente");
+          showToast("Layla abandonÃ³ el servidor exitosamente");
         } else {
           const data = await res.json();
-          customAlert('Atención', 'Error: ' + data.error);
+          customAlert('AtenciÃ³n', 'Error: ' + data.error);
         }
       } catch (e) {
-        customAlert('Atención', 'Error expulsando al bot');
+        customAlert('AtenciÃ³n', 'Error expulsando al bot');
       }
     }
 
@@ -411,7 +411,7 @@
       currentServerTriggers = triggers || [];
       renderTriggers();
 
-      // Cargar Canales dinámicamente
+      // Cargar Canales dinÃ¡micamente
       loadServerChannels(guildId);
 
       // Cargar Relaciones y Memorias
@@ -429,7 +429,7 @@
       switchView('view-servers');
     }
 
-    // -- Lógica de Subviews del servidor --
+    // -- LÃ³gica de Subviews del servidor --
     function switchServerSubview(subviewId) {
       document.querySelectorAll('.subview').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.server-nav-item').forEach(el => el.classList.remove('active'));
@@ -445,7 +445,7 @@
       item.addEventListener('click', () => {
         switchServerSubview(item.getAttribute('data-subview'));
         
-        // Cerrar sidebar en móviles tras hacer clic
+        // Cerrar sidebar en mÃ³viles tras hacer clic
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('mobile-overlay');
         if (sidebar && window.innerWidth <= 768) sidebar.classList.remove('open');
@@ -543,7 +543,7 @@
       }
     }
 
-    // --- LÓGICA DE RELACIONES ---
+    // --- LÃ“GICA DE RELACIONES ---
     async function loadServerMembers(guildId) {
       try {
         const res = await fetch(`/api/servers/${guildId}/channels`);
@@ -610,7 +610,7 @@
 
         const entries = Object.entries(data);
         if (entries.length === 0) {
-          container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">No hay relaciones configuradas aún.</span>';
+          container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">No hay relaciones configuradas aÃºn.</span>';
           return;
         }
 
@@ -654,7 +654,7 @@
       const relationship = document.getElementById('rel-description').value.trim();
 
       if (!userId || !name || !relationship) {
-        customAlert('Atención', 'Todos los campos son obligatorios.');
+        customAlert('AtenciÃ³n', 'Todos los campos son obligatorios.');
         return;
       }
 
@@ -665,30 +665,30 @@
           body: JSON.stringify({ userId, name, relationship })
         });
         if (res.ok) {
-          showToast('Relación guardada');
+          showToast('RelaciÃ³n guardada');
           document.getElementById('rel-name').value = '';
           document.getElementById('rel-description').value = '';
           loadRelationships(currentEditingGuild);
         }
       } catch (e) {
-        customAlert('Atención', 'Error guardando relación');
+        customAlert('AtenciÃ³n', 'Error guardando relaciÃ³n');
       }
     };
 
     window.deleteRelationship = async function(userId) {
       if (!currentEditingGuild) return;
-      const confirmed = await customConfirm('¿Eliminar Relación?', '¿Eliminar esta relación de forma permanente?', 'Eliminar');
+      const confirmed = await customConfirm('Â¿Eliminar RelaciÃ³n?', 'Â¿Eliminar esta relaciÃ³n de forma permanente?', 'Eliminar');
       if (!confirmed) return;
       try {
         await fetch(`/api/servers/${currentEditingGuild}/relationships/${userId}`, { method: 'DELETE' });
         loadRelationships(currentEditingGuild);
-        showToast('Relación eliminada');
+        showToast('RelaciÃ³n eliminada');
       } catch (e) {
-        customAlert('Atención', 'Error eliminando relación');
+        customAlert('AtenciÃ³n', 'Error eliminando relaciÃ³n');
       }
     };
 
-    // --- LÓGICA DE MEMORIAS ---
+    // --- LÃ“GICA DE MEMORIAS ---
     async function loadMemories(guildId) {
       const container = document.getElementById('memories-list');
       container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">Cargando...</span>';
@@ -699,7 +699,7 @@
 
         const entries = Object.entries(data);
         if (entries.length === 0) {
-          container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">No hay memorias aún. Se crearán automáticamente o puedes añadirlas manualmente.</span>';
+          container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">No hay memorias aÃºn. Se crearÃ¡n automÃ¡ticamente o puedes aÃ±adirlas manualmente.</span>';
           return;
         }
 
@@ -710,7 +710,7 @@
           });
         }
         
-        // Ordenar de más reciente a más antiguo
+        // Ordenar de mÃ¡s reciente a mÃ¡s antiguo
         allMemories.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         for (const mem of allMemories) {
@@ -723,13 +723,13 @@
           div.innerHTML = `
             <img class="memory-avatar" src="${avatarUrl}" alt="Avatar">
             <div class="memory-content-box">
-              <div class="memory-badge">MEMORIA MANUAL • ${resolvedName}</div>
+              <div class="memory-badge">MEMORIA MANUAL â€¢ ${resolvedName}</div>
               <div class="memory-text">${mem.text}</div>
             </div>
             <div class="memory-date-pill">${date}</div>
             <div class="memory-actions">
-              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="editMemory('${mem.userId}', '${mem.id}', '${mem.text.replace(/'/g, "\\'")}')">✏️</button>
-              <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" onclick="deleteMemory('${mem.userId}', '${mem.id}')">×</button>
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="editMemory('${mem.userId}', '${mem.id}', '${mem.text.replace(/'/g, "\\'")}')">âœï¸</button>
+              <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" onclick="deleteMemory('${mem.userId}', '${mem.id}')">Ã—</button>
             </div>
           `;
           container.appendChild(div);
@@ -751,7 +751,7 @@
       document.getElementById('mem-text').focus();
       
       document.getElementById('cancel-edit-mem-btn').style.display = 'inline-block';
-      document.getElementById('save-mem-btn').innerText = 'Guardar Edición';
+      document.getElementById('save-mem-btn').innerText = 'Guardar EdiciÃ³n';
     };
 
     window.cancelEditMemory = function() {
@@ -774,7 +774,7 @@
       const text = document.getElementById('mem-text').value.trim();
 
       if (!userId || !text) {
-        customAlert('Atención', 'Selecciona un usuario y escribe el recuerdo.');
+        customAlert('AtenciÃ³n', 'Selecciona un usuario y escribe el recuerdo.');
         return;
       }
 
@@ -800,28 +800,28 @@
           cancelEditMemory(); // Limpia y resetea los botones
           loadMemories(currentEditingGuild);
         } else if (result.duplicate) {
-          customAlert('Atención', 'Esta memoria ya existe (duplicado detectado).');
+          customAlert('AtenciÃ³n', 'Esta memoria ya existe (duplicado detectado).');
         } else {
-          customAlert('Atención', 'Error guardando memoria: ' + (result.error || 'Desconocido'));
+          customAlert('AtenciÃ³n', 'Error guardando memoria: ' + (result.error || 'Desconocido'));
         }
       } catch (e) {
-        customAlert('Atención', 'Error de red guardando memoria');
+        customAlert('AtenciÃ³n', 'Error de red guardando memoria');
       } finally {
-        btn.innerText = window.editingMemoryId ? 'Guardar Edición' : 'Guardar Memoria';
+        btn.innerText = window.editingMemoryId ? 'Guardar EdiciÃ³n' : 'Guardar Memoria';
         btn.disabled = false;
       }
     };
 
     window.deleteMemory = async function(userId, memoryId) {
       if (!currentEditingGuild) return;
-      const confirmed = await customConfirm('¿Borrar Memoria?', '¿Borrar esta memoria permanentemente?', 'Eliminar');
+      const confirmed = await customConfirm('Â¿Borrar Memoria?', 'Â¿Borrar esta memoria permanentemente?', 'Eliminar');
       if (!confirmed) return;
       try {
         await fetch(`/api/servers/${currentEditingGuild}/memories/${userId}/${memoryId}`, { method: 'DELETE' });
         loadMemories(currentEditingGuild);
         showToast('Memoria eliminada');
       } catch (e) {
-        customAlert('Atención', 'Error eliminando memoria');
+        customAlert('AtenciÃ³n', 'Error eliminando memoria');
       }
     };
 
@@ -876,7 +876,7 @@
       const relationship = document.getElementById('global-rel-desc').value.trim();
 
       if (!rawInput || !name || !relationship) {
-        customAlert('Atención', 'Todos los campos son obligatorios.');
+        customAlert('AtenciÃ³n', 'Todos los campos son obligatorios.');
         return;
       }
 
@@ -889,7 +889,7 @@
         // Resolver ID o Username
         const resolveRes = await fetch(`/api/users/${encodeURIComponent(rawInput)}`);
         if (!resolveRes.ok) {
-           customAlert('Atención', "No se encontró ningún usuario con ese ID o Nombre en los servidores donde Layla está activa.");
+           customAlert('AtenciÃ³n', "No se encontrÃ³ ningÃºn usuario con ese ID o Nombre en los servidores donde Layla estÃ¡ activa.");
            return;
         }
         
@@ -907,15 +907,15 @@
           document.getElementById('global-rel-userid').value = '';
           document.getElementById('global-rel-name').value = '';
           document.getElementById('global-rel-desc').value = '';
-          showToast('Relación global guardada');
+          showToast('RelaciÃ³n global guardada');
           loadGlobalRelationships();
         } else {
           const err = await res.json();
-          customAlert('Atención', 'Error: ' + err.error);
+          customAlert('AtenciÃ³n', 'Error: ' + err.error);
         }
       } catch (e) {
         console.error(e);
-        customAlert('Atención', 'Error de conexión');
+        customAlert('AtenciÃ³n', 'Error de conexiÃ³n');
       } finally {
         btn.innerText = originalText;
         btn.disabled = false;
@@ -942,11 +942,11 @@
           showToast('Idioma de Voz Guardado');
         } else {
           const err = await res.json();
-          customAlert('Atención', 'Error guardando idioma: ' + err.error);
+          customAlert('AtenciÃ³n', 'Error guardando idioma: ' + err.error);
         }
       } catch (e) {
         console.error(e);
-        customAlert('Atención', 'Error de conexión');
+        customAlert('AtenciÃ³n', 'Error de conexiÃ³n');
       } finally {
         if (btn) {
             btn.innerText = originalText;
@@ -956,14 +956,14 @@
     };
 
     async function deleteGlobalRelationship(userId) {
-      const confirmed = await customConfirm('¿Eliminar Admin Global?', '¿Estás seguro de eliminar este administrador global?', 'Eliminar');
+      const confirmed = await customConfirm('Â¿Eliminar Admin Global?', 'Â¿EstÃ¡s seguro de eliminar este administrador global?', 'Eliminar');
       if (!confirmed) return;
       try {
         const res = await fetch(`/api/global-relationships/${userId}`, { method: 'DELETE' });
         if (res.ok) {
           loadGlobalRelationships();
         } else {
-          customAlert('Atención', 'Error eliminando administrador');
+          customAlert('AtenciÃ³n', 'Error eliminando administrador');
         }
       } catch (e) {
         console.error(e);
@@ -972,7 +972,7 @@
 
     window.deleteAllUserMemories = async function(userId) {
       if (!currentEditingGuild) return;
-      const confirmed = await customConfirm('¿Eliminar TODAS las memorias?', '¿Estás seguro de eliminar TODAS las memorias de este usuario permanentemente?', 'Eliminar Todo');
+      const confirmed = await customConfirm('Â¿Eliminar TODAS las memorias?', 'Â¿EstÃ¡s seguro de eliminar TODAS las memorias de este usuario permanentemente?', 'Eliminar Todo');
       if (!confirmed) return;
       try {
         const res = await fetch(`/api/servers/${currentEditingGuild}/memories/user/${userId}`, { method: 'DELETE' });
@@ -980,15 +980,15 @@
           loadMemories(currentEditingGuild);
           showToast('Todas las memorias del usuario fueron eliminadas');
         } else {
-          customAlert('Atención', 'Error eliminando las memorias del usuario');
+          customAlert('AtenciÃ³n', 'Error eliminando las memorias del usuario');
         }
       } catch (e) {
         console.error(e);
-        customAlert('Atención', 'Error de conexión');
+        customAlert('AtenciÃ³n', 'Error de conexiÃ³n');
       }
     };
 
-    // --- LÓGICA DE PALABRAS DETONANTES (PILLS) ---
+    // --- LÃ“GICA DE PALABRAS DETONANTES (PILLS) ---
     let currentTriggerWords = [];
 
     window.addTriggerWord = function() {
@@ -1012,7 +1012,7 @@
       currentTriggerWords.forEach((w, i) => {
         const pill = document.createElement('span');
         pill.style.cssText = 'background: rgba(var(--accent-rgb), 0.2); border: 1px solid var(--accent); color: var(--accent); padding: 4px 8px; border-radius: 12px; font-size: 0.85rem; display: flex; align-items: center; gap: 4px;';
-        pill.innerHTML = `"${w}" <button style="background:none;border:none;color:inherit;cursor:pointer;font-weight:bold;margin-left:4px;padding:0;" onclick="removeTriggerWord(${i})">×</button>`;
+        pill.innerHTML = `"${w}" <button style="background:none;border:none;color:inherit;cursor:pointer;font-weight:bold;margin-left:4px;padding:0;" onclick="removeTriggerWord(${i})">Ã—</button>`;
         container.appendChild(pill);
       });
     }
@@ -1057,11 +1057,11 @@
           container.appendChild(label);
         });
       } catch (e) {
-        container.innerHTML = '<span style="color: var(--danger); font-size: 0.85rem;">Error cargando canales. Asegúrate de que el bot esté encendido y conectado.</span>';
+        container.innerHTML = '<span style="color: var(--danger); font-size: 0.85rem;">Error cargando canales. AsegÃºrate de que el bot estÃ© encendido y conectado.</span>';
       }
     }
 
-    // --- LÓGICA DE TRIGGERS Y REPLY ---
+    // --- LÃ“GICA DE TRIGGERS Y REPLY ---
     window.toggleReplySetting = async function(isChecked) {
       if (!currentEditingGuild) return;
       try {
@@ -1072,10 +1072,10 @@
         });
         if (res.ok) {
           showToast("Ajuste de respuesta guardado");
-          loadServers(); // Refrescar caché
+          loadServers(); // Refrescar cachÃ©
         }
       } catch (e) {
-        customAlert('Atención', "Error guardando ajuste");
+        customAlert('AtenciÃ³n', "Error guardando ajuste");
       }
     }
 
@@ -1124,12 +1124,12 @@
       const meaning = meaningInput.value.trim();
 
       if (currentTriggerWords.length === 0 || !meaning) {
-        customAlert('Atención', "Debes añadir al menos una palabra detonante y un significado.");
+        customAlert('AtenciÃ³n', "Debes aÃ±adir al menos una palabra detonante y un significado.");
         return;
       }
       
       if (selectedChannels.length === 0) {
-        customAlert('Atención', "Debes seleccionar al menos un canal para evitar que el bot haga spam en todo el servidor.");
+        customAlert('AtenciÃ³n', "Debes seleccionar al menos un canal para evitar que el bot haga spam en todo el servidor.");
         return;
       }
 
@@ -1170,16 +1170,16 @@
         });
         if (res.ok) {
           showToast("Detonantes guardados");
-          loadServers(); // Refrescar caché principal
+          loadServers(); // Refrescar cachÃ© principal
         } else {
-          customAlert('Atención', "Error al guardar en el servidor");
+          customAlert('AtenciÃ³n', "Error al guardar en el servidor");
         }
       } catch (e) {
-        customAlert('Atención', "Error de red guardando detonantes");
+        customAlert('AtenciÃ³n', "Error de red guardando detonantes");
       }
     }
 
-    // Exponer globalmente para el botón onclick en index.html
+    // Exponer globalmente para el botÃ³n onclick en index.html
     window.closeServerSettings = function() {
       switchView('view-servers');
       currentEditingGuild = null;
@@ -1233,10 +1233,10 @@
           showToast();
           loadServers();
         } else {
-          customAlert('Atención', 'Error al guardar el prompt');
+          customAlert('AtenciÃ³n', 'Error al guardar el prompt');
         }
       } catch (e) {
-        customAlert('Atención', 'Error de conexión');
+        customAlert('AtenciÃ³n', 'Error de conexiÃ³n');
       } finally {
         btn.innerText = originalText;
         btn.disabled = false;
@@ -1256,7 +1256,7 @@
     const scrollBtn = document.getElementById('scroll-to-bottom-btn');
     const newLogDot = document.getElementById('new-log-indicator');
 
-    // Función para ir al final manualmente
+    // FunciÃ³n para ir al final manualmente
     function scrollToBottom() {
       consoleEl.scrollTop = consoleEl.scrollHeight;
       scrollBtn.classList.add('hidden');
@@ -1300,7 +1300,7 @@
       if (isAtBottom) {
         consoleEl.scrollTop = consoleEl.scrollHeight;
       } else {
-        // Mostrar indicador de nuevo mensaje si no está al final
+        // Mostrar indicador de nuevo mensaje si no estÃ¡ al final
         if (scrollBtn) scrollBtn.classList.remove('hidden');
         if (newLogDot) newLogDot.classList.remove('hidden');
       }
@@ -1328,3 +1328,207 @@
 
     // Inicializar
     checkAuth();
+
+// --- LÓGICA DE CHAT DE PRUEBA ---
+window.selectedTestLanguage = '';
+
+window.enableTestChat = function(lang) {
+  if (lang) {
+    document.getElementById('test-chat-language-selector').style.display = 'none';
+    const input = document.getElementById('test-chat-input');
+    const btn = document.getElementById('test-chat-send-btn');
+    input.disabled = false;
+    btn.disabled = false;
+    input.placeholder = "Escribe un mensaje a Layla...";
+    input.focus();
+    window.selectedTestLanguage = lang;
+  }
+};
+window.sendTestChatMessage = async function() {
+  const input = document.getElementById('test-chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  input.disabled = true;
+  document.getElementById('test-chat-send-btn').disabled = true;
+
+  const chatContainer = document.getElementById('test-chat-messages');
+  const placeholder = document.getElementById('test-chat-placeholder');
+  if (placeholder) placeholder.style.display = 'none';
+
+  const selectedLang = window.selectedTestLanguage;
+  let finalMessage = text;
+  if (selectedLang) {
+    finalMessage = `[System directive: please speak strictly in ${selectedLang} for this response] ${text}`;
+  }
+
+  // Mensaje del usuario
+  const nowUser = new Date();
+  const timeStrUser = nowUser.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  const username = currentUser ? currentUser.username : 'You';
+  const avatar = currentUser && currentUser.avatar ? currentUser.avatar : 'https://cdn.discordapp.com/embed/avatars/0.png';
+
+  const userBubble = document.createElement('div');
+  userBubble.style.cssText = 'align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 90%; width: 100%; margin-top: 8px;';
+  
+  // Limpiar el texto para evitar inyección de HTML básico
+  const safeText = String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  
+  userBubble.innerHTML = `
+    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px; margin-right: 2px;">
+      <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; word-break: break-all; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${username}</span>
+      <img src="${avatar}" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: rgba(255,255,255,0.1);" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+    </div>
+    <div style="background: var(--accent); color: white; padding: 12px 16px; border-radius: 16px 16px 0 16px; word-break: break-word; font-size: 0.95rem; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3); max-width: 100%;">
+      ${safeText}
+    </div>
+  `;
+  chatContainer.appendChild(userBubble);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+
+  // Mensaje de carga de Layla
+  const botBubble = document.createElement('div');
+  botBubble.style.cssText = 'align-self: flex-start; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: var(--text); padding: 12px 16px; border-radius: 16px 16px 16px 0; max-width: 90%; word-break: break-word; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; box-sizing: border-box;';
+  botBubble.innerHTML = '<span style=\"width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); animation: pulse 1s infinite;\"></span> Layla está pensando...';
+  chatContainer.appendChild(botBubble);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+
+  try {
+    const res = await fetch('/api/test-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: finalMessage })
+    });
+    const data = await res.json();
+
+    botBubble.innerHTML = '';
+    if (res.ok) {
+      botBubble.style.flexDirection = 'column';
+      botBubble.style.alignItems = 'flex-start';
+      
+      if (data.audioUrl) {
+        botBubble.style.background = 'transparent';
+        botBubble.style.border = 'none';
+        botBubble.style.padding = '0';
+        
+        const heights = [4, 8, 12, 6, 16, 10, 14, 8, 18, 12, 6, 14, 10, 8, 16, 6, 12, 4];
+        let waveformHtml = heights.map(h => `<div style="flex: 1; height: ${h}px; background: rgba(255,255,255,0.3); border-radius: 2px; transition: background 0.1s;"></div>`).join('');
+
+        botBubble.innerHTML = `
+          <div style="display: flex; gap: 12px; align-items: flex-start; margin-top: 8px; width: 100%; max-width: 100%;">
+            <img src="/img/layla-avatar.png" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
+            <div style="display: flex; flex-direction: column; gap: 4px; max-width: calc(100% - 44px);">
+              <div style="font-size: 0.9rem; font-weight: 600; color: var(--text);">Layla</div>
+              <div style="background: rgba(255,255,255,0.06); padding: 8px 16px 8px 12px; border-radius: 20px; display: flex; align-items: center; gap: 12px; width: 280px; max-width: 100%; position: relative; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.1); box-sizing: border-box;">
+                <button class="voice-play-btn" style="width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: transparent; color: white; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; display: flex; align-items: center; justify-content: center; padding-left: 3px; font-size: 0.9rem; z-index: 2;">▶</button>
+                
+                <div class="waveform-container" style="flex: 1; display: flex; align-items: center; gap: 2px; height: 24px; z-index: 2; min-width: 50px;">
+                  ${waveformHtml}
+                </div>
+                
+                <span class="voice-time" style="font-size: 0.85rem; font-weight: 600; color: white; z-index: 2; min-width: 32px; text-align: right; flex-shrink: 0;">0:00</span>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const audioEl = document.createElement('audio');
+        audioEl.src = data.audioUrl;
+        
+        const playBtn = botBubble.querySelector('.voice-play-btn');
+        const timeLabel = botBubble.querySelector('.voice-time');
+        const waveformBars = botBubble.querySelectorAll('.waveform-container div');
+
+        let isPlaying = false;
+
+        playBtn.onclick = () => {
+          if (audioEl.paused) audioEl.play().catch(e => console.warn(e));
+          else audioEl.pause();
+        };
+
+        audioEl.onplay = () => {
+          isPlaying = true;
+          playBtn.innerText = '⏸';
+          playBtn.style.paddingLeft = '0';
+        };
+
+        audioEl.onpause = () => {
+          isPlaying = false;
+          playBtn.innerText = '▶';
+          playBtn.style.paddingLeft = '3px';
+        };
+
+        audioEl.onended = () => {
+          isPlaying = false;
+          playBtn.innerText = '▶';
+          playBtn.style.paddingLeft = '3px';
+          waveformBars.forEach(b => b.style.background = 'rgba(255,255,255,0.3)');
+        };
+
+        audioEl.ontimeupdate = () => {
+          const progress = (audioEl.currentTime / audioEl.duration) || 0;
+          const activeIndex = Math.floor(progress * waveformBars.length);
+          waveformBars.forEach((b, i) => {
+            b.style.background = i <= activeIndex ? 'var(--accent)' : 'rgba(255,255,255,0.3)';
+          });
+          const currentSecs = Math.floor(audioEl.currentTime);
+          timeLabel.innerText = '0:' + currentSecs.toString().padStart(2, '0');
+        };
+
+        audioEl.onloadedmetadata = () => {
+          const durationSecs = Math.floor(audioEl.duration);
+          if (!isPlaying) timeLabel.innerText = '0:' + durationSecs.toString().padStart(2, '0');
+        };
+
+        audioEl.play().catch(e => console.warn('Autoplay evitado:', e));
+      } else {
+        // Solo mostrar texto si es fallback (no hay audio)
+        botBubble.style.background = 'transparent';
+        botBubble.style.border = 'none';
+        botBubble.style.padding = '0';
+        
+        const safeReplyText = String(data.reply || 'Sin respuesta.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        
+        botBubble.innerHTML = `
+          <div style="display: flex; gap: 12px; align-items: flex-start; margin-top: 8px; width: 100%; max-width: 100%;">
+            <img src="/img/layla-avatar.png" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
+            <div style="display: flex; flex-direction: column; gap: 4px; max-width: calc(100% - 44px);">
+              <div style="font-size: 0.9rem; font-weight: 600; color: var(--text);">Layla</div>
+              <div style="background: rgba(0,0,0,0.3); color: var(--text); padding: 12px 16px; border-radius: 16px 16px 16px 0; border: 1px solid rgba(255,255,255,0.1); word-break: break-word; font-size: 0.95rem; max-width: 100%; box-sizing: border-box;">
+                ${safeReplyText}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const limitSpan = document.getElementById('test-chat-remaining');
+      if (limitSpan) limitSpan.innerText = data.remaining;
+
+      if (data.remaining <= 0) {
+        document.getElementById('test-chat-input-area').style.display = 'none';
+        document.getElementById('test-chat-limit-msg').style.display = 'block';
+      } else {
+        input.disabled = false;
+        document.getElementById('test-chat-send-btn').disabled = false;
+        input.focus();
+      }
+    } else {
+      if (data.error === 'limit_reached') {
+        botBubble.innerText = 'Límite de mensajes alcanzado.';
+        document.getElementById('test-chat-input-area').style.display = 'none';
+        document.getElementById('test-chat-limit-msg').style.display = 'block';
+      } else {
+        botBubble.innerText = 'Error: ' + (data.error || 'Desconocido');
+        input.disabled = false;
+        document.getElementById('test-chat-send-btn').disabled = false;
+      }
+    }
+  } catch (e) {
+    botBubble.innerText = 'Error de conexión.';
+    input.disabled = false;
+    document.getElementById('test-chat-send-btn').disabled = false;
+  }
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+};

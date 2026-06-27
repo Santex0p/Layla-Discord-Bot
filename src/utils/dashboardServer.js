@@ -7,6 +7,9 @@ import globalSettingsManager from '../models/GlobalSettingsManager.js';
 import authManager from '../models/AuthManager.js';
 import voskModelManager from '../models/VoskModelManager.js';
 import memoryManager from '../models/MemoryManager.js';
+import aiService from '../services/AiService.js';
+import audioService from '../services/AudioService.js';
+import { promises as fsPromises } from 'node:fs';
 
 // Puerto del dashboard
 const PORT = 80;
@@ -478,6 +481,97 @@ const server = http.createServer(async (req, res) => {
       }
     }
     res.end(JSON.stringify(data));
+    return;
+  }
+
+  // API POST: Test Chat
+  if (req.url === '/api/test-chat' && req.method === 'POST') {
+    if (!currentUser) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No autorizado' }));
+      return;
+    }
+    let rawBody = '';
+    req.on('data', chunk => { 
+      rawBody += chunk.toString(); 
+      if (rawBody.length > 20480) req.destroy(); 
+    });
+    req.on('end', async () => {
+      try {
+        const body = JSON.parse(rawBody);
+        if (!body.message) throw new Error("Mensaje vacío");
+
+      // Contador de mensajes (solo 8)
+      if (!global.testChatUsage) global.testChatUsage = new Map();
+      const usageCount = global.testChatUsage.get(currentUser.id) || 0;
+      if (usageCount >= 8) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'limit_reached', message: 'Límite de 8 mensajes alcanzado.' }));
+        return;
+      }
+
+      global.testChatUsage.set(currentUser.id, usageCount + 1);
+
+      let audioUrl = null;
+      let replyText = null;
+
+      try {
+        const voiceResponse = await aiService.enqueueLiveTurn(
+          body.message, 
+          'dashboard-' + currentUser.id, 
+          currentUser.id,
+          currentUser.username,
+          null
+        );
+        
+        replyText = voiceResponse.transcript;
+
+        if (voiceResponse.audioBuffer?.length) {
+          const attachmentBuffer = await audioService.pcm16ToMp3Buffer(voiceResponse.audioBuffer);
+          const fileId = `layla_test_${Date.now()}`;
+          // Usar la misma ruta que en messageCreate.js o path relativo local
+          const audiosDir = '/app/data/audios';
+          try { await fsPromises.mkdir(audiosDir, { recursive: true }); } catch (e) { }
+          
+          const mp3Path = path.join(audiosDir, `${fileId}.mp3`);
+          const mp4Path = path.join(audiosDir, `${fileId}.mp4`);
+          await fsPromises.writeFile(mp3Path, attachmentBuffer);
+
+          try {
+            await audioService.createMp4WithStaticImage(mp3Path, mp4Path);
+          } catch (e) {
+            console.error('[DASHBOARD] Error creando MP4 en test chat:', e);
+          }
+
+          const { CONFIG } = await import('../config/constants.js');
+          if (CONFIG.MEDIA_DOMAIN) {
+            audioUrl = `https://${CONFIG.MEDIA_DOMAIN}/${fileId}.mp3`;
+          }
+        }
+      } catch (liveError) {
+        console.warn(`[DASHBOARD] Error en sesión Live para test-chat (${liveError.message}). Pasando a fallback de texto...`);
+        // Fallback a texto
+        const fallbackObj = await aiService.generateTextReply(
+          body.message, 
+          'dashboard-' + currentUser.id, 
+          currentUser.id, 
+          null
+        );
+        replyText = fallbackObj.transcript;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ 
+        reply: replyText,
+        audioUrl: audioUrl,
+        remaining: 8 - (usageCount + 1)
+      }));
+    } catch (e) {
+      console.error('[DASHBOARD] Error en Test Chat:', e);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message || 'Error interno del chat' }));
+    }
+    });
     return;
   }
 
