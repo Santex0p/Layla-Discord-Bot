@@ -106,7 +106,7 @@ const server = http.createServer(async (req, res) => {
   if (mp3RootMatch && req.method === 'GET') {
     const filename = mp3RootMatch[1];
     const userAgent = req.headers['user-agent'] || '';
-    
+
     if (userAgent.toLowerCase().includes('discordbot')) {
       const host = req.headers.host || process.env.MEDIA_DOMAIN || 'localhost';
       res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8' });
@@ -157,7 +157,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url.startsWith('/audios/') && req.method === 'GET') {
     const safePath = path.normalize(decodeURIComponent(req.url.replace('/audios', '')));
     const filePath = path.join('/app/data/audios', safePath);
-    
+
     // Evitar Path Traversal
     if (!filePath.startsWith('/app/data/audios')) {
       res.writeHead(403);
@@ -171,7 +171,7 @@ const server = http.createServer(async (req, res) => {
         res.end('Audio file not found');
         return;
       }
-      
+
       const ext = path.extname(filePath).toLowerCase();
       let contentType = 'application/octet-stream';
       if (ext === '.mp3') contentType = 'audio/mpeg';
@@ -189,7 +189,7 @@ const server = http.createServer(async (req, res) => {
         const start = parseInt(parts[0], 10);
         const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
         const chunksize = (end - start) + 1;
-        
+
         const fileStream = fs.createReadStream(filePath, { start, end });
         res.writeHead(206, {
           'Content-Range': `bytes ${start}-${end}/${stat.size}`,
@@ -221,12 +221,12 @@ const server = http.createServer(async (req, res) => {
       const cookies = parseCookies(req);
       const hasAdmin = await authManager.hasAdmin();
       const isValidToken = await authManager.validateToken(cookies.LaylaAuth);
-      res.writeHead(200, { 
+      res.writeHead(200, {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
       });
       res.end(JSON.stringify({ hasAdmin, isAuth: isValidToken }));
-    } catch(e) {
+    } catch (e) {
       console.error('[AUTH] Error en status:', e);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Internal Server Error' }));
@@ -242,9 +242,9 @@ const server = http.createServer(async (req, res) => {
         const { password } = JSON.parse(body);
         if (!password || password.length < 4) throw new Error('Contraseña demasiado corta');
         await authManager.registerAdmin(password);
-        
+
         const token = await authManager.loginAdmin(password);
-        res.writeHead(200, { 
+        res.writeHead(200, {
           'Content-Type': 'application/json',
           'Set-Cookie': `LaylaAuth=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict`
         });
@@ -309,17 +309,17 @@ const server = http.createServer(async (req, res) => {
   if (!isApiOrStream && req.method === 'GET') {
     let reqPath = req.url === '/' ? '/index.html' : req.url;
     reqPath = reqPath.split('?')[0]; // Remover query strings
-    
+
     // Evitar directory traversal
     const safePath = path.normalize(decodeURIComponent(reqPath));
     const filePath = path.resolve(PUBLIC_DIR, '.' + safePath);
-    
+
     if (!filePath.startsWith(PUBLIC_DIR)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
     }
-    
+
     fs.readFile(filePath, (err, data) => {
       if (err) {
         if (reqPath === '/index.html') {
@@ -331,7 +331,7 @@ const server = http.createServer(async (req, res) => {
         }
         return;
       }
-      
+
       const ext = path.extname(filePath).toLowerCase();
       let contentType = 'text/plain';
       if (ext === '.html') contentType = 'text/html';
@@ -344,7 +344,7 @@ const server = http.createServer(async (req, res) => {
       else if (ext === '.webp') contentType = 'image/webp';
       else if (ext === '.ico') contentType = 'image/x-icon';
       else if (ext === '.json') contentType = 'application/json';
-      
+
       res.writeHead(200, { 'Content-Type': contentType });
       res.end(data);
     });
@@ -416,7 +416,7 @@ const server = http.createServer(async (req, res) => {
           const channels = guild.channels.cache
             .filter(c => c.type === 0 || c.type === 5 || c.type === 15) // Text = 0, News = 5, Forum = 15
             .map(c => ({ id: c.id, name: c.name || 'sin-nombre' }));
-          
+
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(channels));
         } else {
@@ -443,7 +443,7 @@ const server = http.createServer(async (req, res) => {
         const guild = discordClient.guilds.cache.get(guildId);
         if (guild) {
           // Intentar cargar miembros si no están en caché
-          await guild.members.fetch({ limit: 100 }).catch(() => {});
+          await guild.members.fetch().catch(() => { });
           const members = guild.members.cache
             .filter(m => !m.user.bot)
             .map(m => ({
@@ -487,7 +487,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const payload = JSON.parse(body);
         const { userId, name, relationship } = payload;
-        
+
         if (!userId || !name || !relationship) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing userId, name or relationship' }));
@@ -595,6 +595,47 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API GET: Obtener un usuario por ID o username
+  if (req.url.match(/^\/api\/users\/[^/]+$/) && req.method === 'GET') {
+    const query = decodeURIComponent(req.url.split('/')[3]).toLowerCase().replace('@', '');
+    try {
+      if (discordClient) {
+        let user = null;
+        if (/^\d{17,20}$/.test(query)) {
+          user = await discordClient.users.fetch(query).catch(() => null);
+        } else {
+          for (const guild of discordClient.guilds.cache.values()) {
+            const member = guild.members.cache.find(m => m.user.username.toLowerCase() === query);
+            if (member) {
+              user = member.user;
+              break;
+            }
+          }
+        }
+
+        if (user) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName || user.username,
+            avatarURL: user.displayAvatarURL({ dynamic: true, size: 128 })
+          }));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'User not found' }));
+        }
+      } else {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Discord client not ready' }));
+      }
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
   // API POST: Actualizar un ajuste global
   if (req.url === '/api/settings' && req.method === 'POST') {
     let body = '';
@@ -644,7 +685,7 @@ const server = http.createServer(async (req, res) => {
         const success = guildPromptManager.setLanguage(guildId, parsed.language);
         if (success) {
           // Pre-descargar el modelo en segundo plano si no existe
-          voskModelManager.getModel(parsed.language).catch(() => {});
+          voskModelManager.getModel(parsed.language).catch(() => { });
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true }));
         } else {
@@ -707,7 +748,7 @@ const server = http.createServer(async (req, res) => {
           res.end(JSON.stringify({ error: 'triggers debe ser un array' }));
           return;
         }
-        
+
         // Validación básica
         const validTriggers = parsed.triggers.filter(t => t.word && typeof t.word === 'string' && t.meaning && typeof t.meaning === 'string');
 
@@ -810,6 +851,17 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: e.message || 'Error procesando memoria' }));
       }
     });
+    return;
+  }
+
+  // DELETE: Eliminar todas las memorias de un usuario
+  if (req.url.match(/^\/api\/servers\/[^/]+\/memories\/user\/[^/]+$/) && req.method === 'DELETE') {
+    const parts = req.url.split('/');
+    const guildId = parts[3];
+    const userId = parts[6];
+    const success = memoryManager.deleteAllUserMemories(guildId, userId);
+    res.writeHead(success ? 200 : 404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success }));
     return;
   }
 

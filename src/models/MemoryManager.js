@@ -233,6 +233,16 @@ class MemoryManager {
     return true;
   }
 
+  deleteAllUserMemories(guildId, userId) {
+    if (!guildId || !userId) return false;
+    if (this.memories[guildId] && this.memories[guildId][userId]) {
+      delete this.memories[guildId][userId];
+      this._saveMemories();
+      return true;
+    }
+    return false;
+  }
+
   /**
    * Busca las memorias más relevantes para un mensaje dado.
    * Convierte el mensaje a embedding y busca por similitud del coseno.

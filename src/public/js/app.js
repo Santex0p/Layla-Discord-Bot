@@ -1,15 +1,55 @@
 // --- NAVEGACION ---
     const navItems = document.querySelectorAll('.nav-item');
+    let currentView = 'view-servers';
+
+    // Función para menú móvil
+    window.toggleMobileMenu = function() {
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('mobile-overlay');
+      if (sidebar.classList.contains('open')) {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('active');
+      } else {
+        sidebar.classList.add('open');
+        overlay.classList.add('active');
+      }
+    };
+
     function switchView(targetId, updateHistory = true) {
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       const targetView = document.getElementById(targetId);
       if (targetView) targetView.classList.add('active');
 
-      // Update sidebar selection
+      // Update sidebar selection — only touch main nav items, not server-nav-items
       if (targetId !== 'view-login' && targetId !== 'view-register') {
-        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-        const activeNav = document.querySelector(`.nav-item[data-target="${targetId}"]`);
+        // Handle Sidebar Menu Visibility
+        if (targetId === 'view-server-container') {
+          if (!currentEditingGuild) {
+            // Si el usuario recargó la página y se perdió el contexto del servidor, forzar al inicio.
+            targetId = 'view-servers';
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById('view-servers').classList.add('active');
+            document.getElementById('main-nav-menu').style.display = 'flex';
+            document.getElementById('server-nav-menu').style.display = 'none';
+          } else {
+            document.getElementById('main-nav-menu').style.display = 'none';
+            document.getElementById('server-nav-menu').style.display = 'flex';
+          }
+        } else {
+          document.getElementById('main-nav-menu').style.display = 'flex';
+          document.getElementById('server-nav-menu').style.display = 'none';
+          currentEditingGuild = null; // Reseteamos el servidor activo si salimos de su vista
+        }
+
+        document.querySelectorAll('#main-nav-menu .nav-item').forEach(n => n.classList.remove('active'));
+        const activeNav = document.querySelector(`#main-nav-menu .nav-item[data-target="${targetId}"]`);
         if (activeNav) activeNav.classList.add('active');
+        
+        // Cerrar sidebar en móviles tras hacer clic
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('mobile-overlay');
+        if (sidebar) sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('active');
       }
 
       if (updateHistory) {
@@ -42,7 +82,7 @@
         const data = JSON.parse(text);
         
         if (data.error) {
-          alert('Error del servidor al verificar sesión: ' + data.error);
+          customAlert('Atención', 'Error del servidor al verificar sesión: ' + data.error);
           return;
         }
         
@@ -54,7 +94,8 @@
           switchView('view-login');
         } else {
           // If URL has a hash, load it on startup, otherwise view-servers
-          const hash = window.location.hash.replace('#', '');
+          let hash = window.location.hash.replace('#', '');
+          if (hash.startsWith('subview-')) hash = 'view-servers'; // Fallback if refreshing inside a server subview
           const initialView = hash || 'view-servers';
           switchView(initialView, true);
           
@@ -65,7 +106,7 @@
         }
       } catch(e) {
         console.error("Auth check failed", e);
-        alert("Error de conexión al verificar estado.");
+        customAlert('Atención', "Error de conexión al verificar estado.");
       }
     }
 
@@ -76,7 +117,7 @@
       const pass = document.getElementById('login-password').value;
       const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: pass }) });
       if(res.ok) { window.location.href = '/'; }
-      else { const d = await res.json(); alert(d.error || 'Login failed'); btn.disabled = false; btn.innerText = 'Ingresar'; }
+      else { const d = await res.json(); customAlert('Atención', d.error || 'Login failed'); btn.disabled = false; btn.innerText = 'Ingresar'; }
     }
 
     async function doRegister() {
@@ -86,7 +127,7 @@
       const pass = document.getElementById('register-password').value;
       const res = await fetch('/api/auth/register', { method: 'POST', body: JSON.stringify({ password: pass }) });
       if(res.ok) { window.location.href = '/'; }
-      else { const d = await res.json(); alert(d.error || 'Register failed'); btn.disabled = false; btn.innerText = 'Registrar Admin'; }
+      else { const d = await res.json(); customAlert('Atención', d.error || 'Register failed'); btn.disabled = false; btn.innerText = 'Registrar Admin'; }
     }
 
     async function doLogout() {
@@ -128,14 +169,13 @@
             : letter;
 
           card.innerHTML = `
-            <div class="server-card-header">
+            <div class="server-card-header" style="border-bottom: none; margin-bottom: 0;">
               <div class="server-icon">${iconContent}</div>
               <div>
                 <div class="server-name">${info.serverName}</div>
                 <div class="server-id">ID: ${guildId}</div>
               </div>
             </div>
-            <div class="server-prompt-preview">${info.prompt}</div>
           `;
           grid.appendChild(card);
         }
@@ -166,7 +206,7 @@
         });
         if (res.ok) showToast();
       } catch (e) {
-        alert('Error al guardar ajuste');
+        customAlert('Atención', 'Error al guardar ajuste');
       }
     }
 
@@ -179,23 +219,98 @@
           document.getElementById('prompt-textarea').value = data.prompt;
         }
       } catch (e) {
-        alert('Error obteniendo el prompt por defecto');
+        customAlert('Atención', 'Error obteniendo el prompt por defecto');
       }
+    }
+
+
+    window.customAlert = function(title, message) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('alert-modal');
+        document.getElementById('alert-modal-title').innerText = title || 'Alerta';
+        document.getElementById('alert-modal-message').innerText = message;
+        
+        modal.style.display = 'flex';
+
+        const btnOk = document.getElementById('alert-modal-ok');
+        const onOk = () => { 
+          modal.style.display = 'none';
+          btnOk.removeEventListener('click', onOk);
+          resolve();
+        };
+
+        btnOk.addEventListener('click', onOk);
+      });
+    }
+
+    window.customPrompt = function(title, placeholder) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('prompt-modal');
+        document.getElementById('prompt-modal-title').innerText = title || 'Ingreso de Datos';
+        const input = document.getElementById('prompt-modal-input');
+        input.placeholder = placeholder || '';
+        input.value = '';
+        
+        modal.style.display = 'flex';
+        input.focus();
+
+        const btnOk = document.getElementById('prompt-modal-ok');
+        const btnCancel = document.getElementById('prompt-modal-cancel');
+
+        const cleanup = () => {
+          modal.style.display = 'none';
+          btnOk.removeEventListener('click', onOk);
+          btnCancel.removeEventListener('click', onCancel);
+        };
+
+        const onOk = () => { cleanup(); resolve(input.value); };
+        const onCancel = () => { cleanup(); resolve(null); };
+
+        btnOk.addEventListener('click', onOk);
+        btnCancel.addEventListener('click', onCancel);
+      });
+    }
+
+    function customConfirm(title, message, okText = 'Sí, confirmar') {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-modal');
+        document.getElementById('confirm-modal-title').innerText = title;
+        document.getElementById('confirm-modal-message').innerText = message;
+        document.getElementById('confirm-modal-ok').innerText = okText;
+        
+        modal.style.display = 'flex';
+
+        const onOk = () => { cleanup(); resolve(true); };
+        const onCancel = () => { cleanup(); resolve(false); };
+
+        const btnOk = document.getElementById('confirm-modal-ok');
+        const btnCancel = document.getElementById('confirm-modal-cancel');
+
+        btnOk.addEventListener('click', onOk);
+        btnCancel.addEventListener('click', onCancel);
+
+        function cleanup() {
+          modal.style.display = 'none';
+          btnOk.removeEventListener('click', onOk);
+          btnCancel.removeEventListener('click', onCancel);
+        }
+      });
     }
 
     async function leaveServer() {
       if (!currentEditingGuild) return;
-      // Mostrar modal personalizado en vez del confirm() nativo
-      document.getElementById('confirm-modal').style.display = 'flex';
-    }
-
-    function closeConfirmModal() {
-      document.getElementById('confirm-modal').style.display = 'none';
+      const confirmed = await customConfirm(
+        '¿Expulsar a Layla?',
+        '¿Estás 100% seguro de que quieres expulsar a Layla de este servidor? Tendrás que volver a invitarla manualmente con el enlace de Discord si te arrepientes.',
+        'Sí, expulsarla'
+      );
+      if (confirmed) {
+        executeLeaveServer();
+      }
     }
 
     async function executeLeaveServer() {
       if (!currentEditingGuild) return;
-      closeConfirmModal();
 
       try {
         const res = await fetch(`/api/servers/${currentEditingGuild}/leave`, {
@@ -207,10 +322,10 @@
           showToast("Layla abandonó el servidor exitosamente");
         } else {
           const data = await res.json();
-          alert('Error: ' + data.error);
+          customAlert('Atención', 'Error: ' + data.error);
         }
       } catch (e) {
-        alert('Error expulsando al bot');
+        customAlert('Atención', 'Error expulsando al bot');
       }
     }
 
@@ -219,12 +334,12 @@
 
     function openServerSettings(guildId, name, prompt, language, iconUrl, replyToLayla, triggers) {
       currentEditingGuild = guildId;
-      document.getElementById('settings-server-name').innerText = name;
-      document.getElementById('settings-server-id').innerText = `ID: ${guildId}`;
+      document.getElementById('sticky-server-name').innerText = name;
+      document.getElementById('sticky-server-id').innerText = `ID: ${guildId}`;
       document.getElementById('prompt-textarea').value = prompt;
       
       const letter = name ? name.charAt(0).toUpperCase() : '?';
-      document.getElementById('settings-server-icon').innerHTML = iconUrl
+      document.getElementById('sticky-server-icon').innerHTML = iconUrl
         ? `<img src="${iconUrl}" alt="icon" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">`
         : letter;
       
@@ -254,7 +369,128 @@
       loadRelationships(guildId);
       loadMemories(guildId);
 
-      switchView('view-server-settings');
+      // UI Contextual Sidebar handled in switchView now
+      
+      switchServerSubview('subview-prompt');
+      switchView('view-server-container');
+    }
+
+    function closeServerSettings() {
+      switchView('view-servers');
+    }
+
+    // -- Lógica de Subviews del servidor --
+    function switchServerSubview(subviewId) {
+      document.querySelectorAll('.subview').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.server-nav-item').forEach(el => el.classList.remove('active'));
+      
+      const target = document.getElementById(subviewId);
+      if (target) target.classList.add('active');
+      
+      const navItem = document.querySelector(`.server-nav-item[data-subview="${subviewId}"]`);
+      if (navItem) navItem.classList.add('active');
+    }
+
+    document.querySelectorAll('.server-nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        switchServerSubview(item.getAttribute('data-subview'));
+        
+        // Cerrar sidebar en móviles tras hacer clic
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('mobile-overlay');
+        if (sidebar && window.innerWidth <= 768) sidebar.classList.remove('open');
+        if (overlay && window.innerWidth <= 768) overlay.classList.remove('active');
+      });
+    });
+
+    window.userCache = window.userCache || {};
+    window.userAvatarCache = window.userAvatarCache || {};
+    
+    async function resolveUsername(userId) {
+      if (window.userCache[userId]) return window.userCache[userId];
+      try {
+        const res = await fetch(`/api/users/${userId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const name = `@${data.username}`;
+          window.userCache[userId] = name;
+          if (data.avatarURL) window.userAvatarCache[userId] = data.avatarURL;
+          return name;
+        }
+      } catch(e) {}
+      return userId;
+    }
+
+    async function resolveUserAvatar(userId) {
+      if (window.userAvatarCache[userId]) return window.userAvatarCache[userId];
+      // Resolve name will also cache avatar if it exists
+      await resolveUsername(userId);
+      return window.userAvatarCache[userId] || `https://cdn.discordapp.com/embed/avatars/${(userId % 5) || 0}.png`;
+    }
+
+    function setupCustomDropdown(inputId, listId) {
+      const input = document.getElementById(inputId);
+      const list = document.getElementById(listId);
+      if (!input || !list) return;
+
+      input.addEventListener('focus', () => {
+        list.classList.add('active');
+        filterList();
+      });
+
+      input.addEventListener('input', () => {
+        list.classList.add('active');
+        filterList();
+        input.removeAttribute('data-selected-id'); // User is typing, clear selection
+        input.removeAttribute('data-selected-name');
+      });
+
+      function filterList() {
+        const filter = input.value.toLowerCase();
+        const items = list.querySelectorAll('.custom-dropdown-item');
+        items.forEach(item => {
+          const text = item.textContent.toLowerCase();
+          if (text.includes(filter)) {
+            item.style.display = 'block';
+          } else {
+            item.style.display = 'none';
+          }
+        });
+      }
+
+      // Cerrar al hacer clic fuera
+      document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !list.contains(e.target)) {
+          list.classList.remove('active');
+        }
+      });
+    }
+
+    // Inicializar dropdowns
+    setupCustomDropdown('rel-user-select', 'rel-user-dropdown-list');
+    setupCustomDropdown('mem-user-select', 'mem-user-dropdown-list');
+
+    function getUserIdFromDropdown(inputId) {
+      const input = document.getElementById(inputId);
+      if (!input) return null;
+      return input.getAttribute('data-selected-id') || input.value.trim();
+    }
+
+    function setDropdownValueFromId(inputId, listId, userId) {
+      const input = document.getElementById(inputId);
+      const list = document.getElementById(listId);
+      if (!input || !list) return;
+      
+      const option = list.querySelector(`.custom-dropdown-item[data-id="${userId}"]`);
+      if (option) {
+        input.value = option.textContent;
+        input.setAttribute('data-selected-id', userId);
+        input.setAttribute('data-selected-name', option.getAttribute('data-name'));
+      } else {
+        input.value = userId;
+        input.removeAttribute('data-selected-id');
+        input.removeAttribute('data-selected-name');
+      }
     }
 
     // --- LÓGICA DE RELACIONES ---
@@ -264,28 +500,55 @@
         // Usamos una ruta alternativa: listar miembros del servidor
         const membersRes = await fetch(`/api/servers/${guildId}/members`);
         if (!membersRes.ok) {
-          // Si la ruta no existe aún, dejamos los selects vacíos con opción manual
-          ['rel-user-select', 'mem-user-select'].forEach(id => {
-            const sel = document.getElementById(id);
-            sel.innerHTML = '<option value="">Escribe el User ID manualmente...</option>';
+          ['rel-user-dropdown-list', 'mem-user-dropdown-list'].forEach(id => {
+            const dl = document.getElementById(id);
+            if (dl) dl.innerHTML = '';
           });
           return;
         }
         const members = await membersRes.json();
-        ['rel-user-select', 'mem-user-select'].forEach(id => {
-          const sel = document.getElementById(id);
-          sel.innerHTML = '<option value="">Selecciona un usuario...</option>';
+        members.forEach(m => window.userCache[m.id] = `@${m.username}`); // Pre-cache
+
+        // Llenar listas dropdown
+        ['rel-user', 'mem-user'].forEach(prefix => {
+          const list = document.getElementById(`${prefix}-dropdown-list`);
+          if (!list) return;
+          list.innerHTML = '';
           members.forEach(m => {
-            const opt = document.createElement('option');
-            opt.value = m.id;
-            opt.textContent = `${m.displayName} (${m.username})`;
-            sel.appendChild(opt);
+            const div = document.createElement('div');
+            div.className = 'custom-dropdown-item';
+            div.textContent = `@${m.username} (${m.displayName})`;
+            div.setAttribute('data-id', m.id);
+            div.setAttribute('data-name', m.displayName);
+            div.addEventListener('click', () => {
+              const input = document.getElementById(`${prefix}-select`);
+              input.value = div.textContent;
+              input.setAttribute('data-selected-id', m.id);
+              input.setAttribute('data-selected-name', m.displayName);
+              list.classList.remove('active');
+            });
+            list.appendChild(div);
           });
         });
       } catch (e) {
         console.error('Error cargando miembros:', e);
       }
     }
+
+    window.editRelationship = function(userId, nameEncoded, descEncoded) {
+      const name = decodeURIComponent(nameEncoded);
+      const desc = decodeURIComponent(descEncoded);
+      
+      setDropdownValueFromId('rel-user-select', 'rel-user-dropdown-list', userId);
+      const input = document.getElementById('rel-user-select');
+      if (!input.getAttribute('data-selected-id')) {
+        input.setAttribute('data-selected-id', userId);
+        input.setAttribute('data-selected-name', name);
+        input.value = `${name} (${userId})`;
+      }
+      document.getElementById('rel-description').value = desc;
+      document.getElementById('rel-description').focus();
+    };
 
     async function loadRelationships(guildId) {
       const container = document.getElementById('relationships-list');
@@ -301,18 +564,22 @@
           return;
         }
 
-        entries.forEach(([userId, rel]) => {
+        for (const [userId, rel] of entries) {
+          const resolvedName = await resolveUsername(userId);
           const div = document.createElement('div');
           div.style.cssText = 'background: rgba(0,0,0,0.15); padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;';
           div.innerHTML = `
             <div>
-              <strong style="color: var(--accent);">${rel.name}</strong> <span style="color: var(--text-muted); font-size: 0.8rem;">(${userId})</span>
+              <strong style="color: var(--accent);">${rel.name}</strong> <span style="color: var(--text-muted); font-size: 0.8rem;">(${resolvedName})</span>
               <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px;">${rel.relationship}</p>
             </div>
-            <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="deleteRelationship('${userId}')">Eliminar</button>
+            <div>
+              <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem; margin-right: 8px;" onclick="editRelationship('${userId}', '${encodeURIComponent(rel.name)}', '${encodeURIComponent(rel.relationship)}')">Editar</button>
+              <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="deleteRelationship('${userId}')">Eliminar</button>
+            </div>
           `;
           container.appendChild(div);
-        });
+        }
       } catch (e) {
         container.innerHTML = '<span style="color: var(--danger);">Error cargando relaciones.</span>';
       }
@@ -320,13 +587,24 @@
 
     window.saveRelationship = async function() {
       if (!currentEditingGuild) return;
-      const userSelect = document.getElementById('rel-user-select');
-      const userId = userSelect.value || prompt('Ingresa el User ID de Discord:');
-      const name = document.getElementById('rel-name').value.trim();
+      const inputEl = document.getElementById('rel-user-select');
+      const userIdStr = getUserIdFromDropdown('rel-user-select');
+      const userId = userIdStr || await customPrompt('Ingreso', 'Ingresa el User ID de Discord:');
+      
+      // Auto-extract name if not set manually (rel-name field removed)
+      let name = inputEl.getAttribute('data-selected-name');
+      if (!name) {
+        // If they typed "@username (DisplayName)", try to extract Name or fallback to the whole string
+        const val = inputEl.value.trim();
+        const match = val.match(/\((.*?)\)/);
+        name = match ? match[1] : val;
+        if (!name) name = `@Unknown`; // Default if completely empty
+      }
+      
       const relationship = document.getElementById('rel-description').value.trim();
 
       if (!userId || !name || !relationship) {
-        alert('Todos los campos son obligatorios.');
+        customAlert('Atención', 'Todos los campos son obligatorios.');
         return;
       }
 
@@ -343,18 +621,20 @@
           loadRelationships(currentEditingGuild);
         }
       } catch (e) {
-        alert('Error guardando relación');
+        customAlert('Atención', 'Error guardando relación');
       }
     };
 
     window.deleteRelationship = async function(userId) {
-      if (!currentEditingGuild || !confirm('¿Eliminar esta relación?')) return;
+      if (!currentEditingGuild) return;
+      const confirmed = await customConfirm('¿Eliminar Relación?', '¿Eliminar esta relación de forma permanente?', 'Eliminar');
+      if (!confirmed) return;
       try {
         await fetch(`/api/servers/${currentEditingGuild}/relationships/${userId}`, { method: 'DELETE' });
         loadRelationships(currentEditingGuild);
         showToast('Relación eliminada');
       } catch (e) {
-        alert('Error eliminando relación');
+        customAlert('Atención', 'Error eliminando relación');
       }
     };
 
@@ -373,40 +653,78 @@
           return;
         }
 
-        entries.forEach(([userId, mems]) => {
-          // Encabezado por usuario
-          const header = document.createElement('div');
-          header.style.cssText = 'font-weight: bold; color: var(--accent); font-size: 0.95rem; margin-top: 8px;';
-          header.textContent = `👤 Usuario: ${userId}`;
-          container.appendChild(header);
-
+        const allMemories = [];
+        for (const [userId, mems] of entries) {
           mems.forEach(mem => {
-            const div = document.createElement('div');
-            div.style.cssText = 'background: rgba(0,0,0,0.15); padding: 10px 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; margin-left: 16px;';
-            const date = mem.createdAt ? new Date(mem.createdAt).toLocaleDateString() : '?';
-            div.innerHTML = `
-              <div>
-                <p style="color: var(--text-secondary); font-size: 0.9rem;">${mem.text}</p>
-                <span style="color: var(--text-muted); font-size: 0.75rem;">Creado: ${date}</span>
-              </div>
-              <button class="btn btn-danger" style="padding: 4px 10px; font-size: 0.75rem;" onclick="deleteMemory('${userId}', '${mem.id}')">×</button>
-            `;
-            container.appendChild(div);
+            allMemories.push({ userId, ...mem });
           });
-        });
+        }
+        
+        // Ordenar de más reciente a más antiguo
+        allMemories.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+        for (const mem of allMemories) {
+          const resolvedName = await resolveUsername(mem.userId);
+          const avatarUrl = await resolveUserAvatar(mem.userId);
+          const date = mem.createdAt ? new Date(mem.createdAt).toLocaleDateString() : '?';
+          
+          const div = document.createElement('div');
+          div.className = 'memory-row';
+          div.innerHTML = `
+            <img class="memory-avatar" src="${avatarUrl}" alt="Avatar">
+            <div class="memory-content-box">
+              <div class="memory-badge">MEMORIA MANUAL • ${resolvedName}</div>
+              <div class="memory-text">${mem.text}</div>
+            </div>
+            <div class="memory-date-pill">${date}</div>
+            <div class="memory-actions">
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="editMemory('${mem.userId}', '${mem.id}', '${mem.text.replace(/'/g, "\\'")}')">✏️</button>
+              <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" onclick="deleteMemory('${mem.userId}', '${mem.id}')">×</button>
+            </div>
+          `;
+          container.appendChild(div);
+        }
       } catch (e) {
         container.innerHTML = '<span style="color: var(--danger);">Error cargando memorias.</span>';
       }
     }
 
+    window.editingMemoryId = null;
+
+    window.editMemory = function(userId, memoryId, text) {
+      window.editingMemoryId = { userId, memoryId };
+      setDropdownValueFromId('mem-user-select', 'mem-user-dropdown-list', userId);
+      document.getElementById('mem-user-select').disabled = true;
+      document.getElementById('mem-user-select').style.opacity = '0.6';
+      
+      document.getElementById('mem-text').value = text;
+      document.getElementById('mem-text').focus();
+      
+      document.getElementById('cancel-edit-mem-btn').style.display = 'inline-block';
+      document.getElementById('save-mem-btn').innerText = 'Guardar Edición';
+    };
+
+    window.cancelEditMemory = function() {
+      window.editingMemoryId = null;
+      const userSelect = document.getElementById('mem-user-select');
+      userSelect.disabled = false;
+      userSelect.style.opacity = '1';
+      userSelect.value = '';
+      
+      document.getElementById('mem-text').value = '';
+      document.getElementById('cancel-edit-mem-btn').style.display = 'none';
+      document.getElementById('save-mem-btn').innerText = 'Guardar Memoria';
+    };
+
     window.saveMemory = async function() {
       if (!currentEditingGuild) return;
-      const userSelect = document.getElementById('mem-user-select');
-      const userId = userSelect.value || prompt('Ingresa el User ID de Discord:');
+      
+      const userIdStr = getUserIdFromDropdown('mem-user-select');
+      const userId = userIdStr || await customPrompt('Ingreso', 'Ingresa el User ID de Discord:');
       const text = document.getElementById('mem-text').value.trim();
 
       if (!userId || !text) {
-        alert('Selecciona un usuario y escribe el recuerdo.');
+        customAlert('Atención', 'Selecciona un usuario y escribe el recuerdo.');
         return;
       }
 
@@ -416,6 +734,11 @@
       btn.disabled = true;
 
       try {
+        if (window.editingMemoryId) {
+          await fetch(`/api/servers/${currentEditingGuild}/memories/${window.editingMemoryId.userId}/${window.editingMemoryId.memoryId}`, { method: 'DELETE' });
+          window.editingMemoryId = null;
+        }
+
         const res = await fetch(`/api/servers/${currentEditingGuild}/memories`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -424,30 +747,41 @@
         const result = await res.json();
         if (result.success) {
           showToast('Memoria guardada');
-          document.getElementById('mem-text').value = '';
+          cancelEditMemory(); // Limpia y resetea los botones
           loadMemories(currentEditingGuild);
         } else if (result.duplicate) {
-          alert('Esta memoria ya existe (duplicado detectado).');
+          customAlert('Atención', 'Esta memoria ya existe (duplicado detectado).');
         } else {
-          alert('Error guardando memoria: ' + (result.error || 'Desconocido'));
+          customAlert('Atención', 'Error guardando memoria: ' + (result.error || 'Desconocido'));
         }
       } catch (e) {
-        alert('Error de red guardando memoria');
+        customAlert('Atención', 'Error de red guardando memoria');
       } finally {
-        btn.innerText = originalText;
+        btn.innerText = window.editingMemoryId ? 'Guardar Edición' : 'Guardar Memoria';
         btn.disabled = false;
       }
     };
 
     window.deleteMemory = async function(userId, memoryId) {
-      if (!currentEditingGuild || !confirm('¿Eliminar este recuerdo?')) return;
+      if (!currentEditingGuild) return;
+      const confirmed = await customConfirm('¿Borrar Memoria?', '¿Borrar esta memoria permanentemente?', 'Eliminar');
+      if (!confirmed) return;
       try {
         await fetch(`/api/servers/${currentEditingGuild}/memories/${userId}/${memoryId}`, { method: 'DELETE' });
         loadMemories(currentEditingGuild);
         showToast('Memoria eliminada');
       } catch (e) {
-        alert('Error eliminando memoria');
+        customAlert('Atención', 'Error eliminando memoria');
       }
+    };
+
+    window.editGlobalRelationship = function(userId, nameEncoded, descEncoded) {
+      const name = decodeURIComponent(nameEncoded);
+      const desc = decodeURIComponent(descEncoded);
+      document.getElementById('global-rel-userid').value = userId;
+      document.getElementById('global-rel-name').value = name;
+      document.getElementById('global-rel-desc').value = desc;
+      document.getElementById('global-rel-desc').focus();
     };
 
     // --- RELACIONES GLOBALES ---
@@ -465,15 +799,19 @@
         }
 
         for (const [userId, info] of Object.entries(data)) {
+          const resolvedName = await resolveUsername(userId);
           const card = document.createElement('div');
           card.style.cssText = 'background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center;';
           
           card.innerHTML = `
             <div>
-              <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 4px; color: var(--accent);">${info.name} <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">(${userId})</span></div>
+              <div style="font-weight: 600; font-size: 1.1rem; margin-bottom: 4px; color: var(--accent);">${info.name} <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">(${resolvedName})</span></div>
               <div style="color: var(--text-muted);">${info.relationship}</div>
             </div>
-            <button class="btn btn-danger" onclick="deleteGlobalRelationship('${userId}')">Eliminar</button>
+            <div>
+              <button class="btn btn-secondary" style="margin-right: 8px;" onclick="editGlobalRelationship('${userId}', '${encodeURIComponent(info.name)}', '${encodeURIComponent(info.relationship)}')">Editar</button>
+              <button class="btn btn-danger" onclick="deleteGlobalRelationship('${userId}')">Eliminar</button>
+            </div>
           `;
           listDiv.appendChild(card);
         }
@@ -483,16 +821,32 @@
     }
 
     async function saveGlobalRelationship() {
-      const userId = document.getElementById('global-rel-userid').value.trim();
+      const rawInput = document.getElementById('global-rel-userid').value.trim();
       const name = document.getElementById('global-rel-name').value.trim();
       const relationship = document.getElementById('global-rel-desc').value.trim();
-      
-      if (!userId || !name || !relationship) {
-        alert('Por favor, completa todos los campos.');
+
+      if (!rawInput || !name || !relationship) {
+        customAlert('Atención', 'Todos los campos son obligatorios.');
         return;
       }
-      
+
+      const btn = document.querySelector('button[onclick="saveGlobalRelationship()"]');
+      const originalText = btn.innerText;
+      btn.innerText = 'Guardando...';
+      btn.disabled = true;
+
       try {
+        // Resolver ID o Username
+        const resolveRes = await fetch(`/api/users/${encodeURIComponent(rawInput)}`);
+        if (!resolveRes.ok) {
+           customAlert('Atención', "No se encontró ningún usuario con ese ID o Nombre en los servidores donde Layla está activa.");
+           return;
+        }
+        
+        const userObj = await resolveRes.json();
+        const userId = userObj.id; // ID real resuelto
+        window.userCache[userId] = `@${userObj.username}`; // Actualizar cache local
+
         const res = await fetch('/api/global-relationships', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -503,30 +857,86 @@
           document.getElementById('global-rel-userid').value = '';
           document.getElementById('global-rel-name').value = '';
           document.getElementById('global-rel-desc').value = '';
+          showToast('Relación global guardada');
           loadGlobalRelationships();
         } else {
           const err = await res.json();
-          alert('Error: ' + err.error);
+          customAlert('Atención', 'Error: ' + err.error);
         }
       } catch (e) {
         console.error(e);
-        alert('Error de conexión');
+        customAlert('Atención', 'Error de conexión');
+      } finally {
+        btn.innerText = originalText;
+        btn.disabled = false;
       }
     }
 
+    window.saveLanguage = async function() {
+      if (!currentEditingGuild) return;
+      const newLanguage = document.getElementById('language-select').value;
+      const btn = document.querySelector('button[onclick="saveLanguage()"]');
+      const originalText = btn.innerText;
+
+      btn.innerText = "Guardando...";
+      btn.disabled = true;
+
+      try {
+        const res = await fetch(`/api/servers/${currentEditingGuild}/language`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language: newLanguage })
+        });
+        
+        if (res.ok) {
+          showToast('Idioma de Voz Guardado');
+        } else {
+          const err = await res.json();
+          customAlert('Atención', 'Error guardando idioma: ' + err.error);
+        }
+      } catch (e) {
+        console.error(e);
+        customAlert('Atención', 'Error de conexión');
+      } finally {
+        if (btn) {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+      }
+    };
+
     async function deleteGlobalRelationship(userId) {
-      if (!confirm('¿Estás seguro de eliminar este administrador global?')) return;
+      const confirmed = await customConfirm('¿Eliminar Admin Global?', '¿Estás seguro de eliminar este administrador global?', 'Eliminar');
+      if (!confirmed) return;
       try {
         const res = await fetch(`/api/global-relationships/${userId}`, { method: 'DELETE' });
         if (res.ok) {
           loadGlobalRelationships();
         } else {
-          alert('Error eliminando administrador');
+          customAlert('Atención', 'Error eliminando administrador');
         }
       } catch (e) {
         console.error(e);
       }
     }
+
+    window.deleteAllUserMemories = async function(userId) {
+      if (!currentEditingGuild) return;
+      const confirmed = await customConfirm('¿Eliminar TODAS las memorias?', '¿Estás seguro de eliminar TODAS las memorias de este usuario permanentemente?', 'Eliminar Todo');
+      if (!confirmed) return;
+      try {
+        const res = await fetch(`/api/servers/${currentEditingGuild}/memories/user/${userId}`, { method: 'DELETE' });
+        if (res.ok) {
+          loadMemories(currentEditingGuild);
+          showToast('Todas las memorias del usuario fueron eliminadas');
+        } else {
+          customAlert('Atención', 'Error eliminando las memorias del usuario');
+        }
+      } catch (e) {
+        console.error(e);
+        customAlert('Atención', 'Error de conexión');
+      }
+    };
 
     // --- LÓGICA DE PALABRAS DETONANTES (PILLS) ---
     let currentTriggerWords = [];
@@ -615,7 +1025,7 @@
           loadServers(); // Refrescar caché
         }
       } catch (e) {
-        alert("Error guardando ajuste");
+        customAlert('Atención', "Error guardando ajuste");
       }
     }
 
@@ -664,12 +1074,12 @@
       const meaning = meaningInput.value.trim();
 
       if (currentTriggerWords.length === 0 || !meaning) {
-        alert("Debes añadir al menos una palabra detonante y un significado.");
+        customAlert('Atención', "Debes añadir al menos una palabra detonante y un significado.");
         return;
       }
       
       if (selectedChannels.length === 0) {
-        alert("Debes seleccionar al menos un canal para evitar que el bot haga spam en todo el servidor.");
+        customAlert('Atención', "Debes seleccionar al menos un canal para evitar que el bot haga spam en todo el servidor.");
         return;
       }
 
@@ -712,10 +1122,10 @@
           showToast("Detonantes guardados");
           loadServers(); // Refrescar caché principal
         } else {
-          alert("Error al guardar en el servidor");
+          customAlert('Atención', "Error al guardar en el servidor");
         }
       } catch (e) {
-        alert("Error de red guardando detonantes");
+        customAlert('Atención', "Error de red guardando detonantes");
       }
     }
 
@@ -773,10 +1183,10 @@
           showToast();
           loadServers();
         } else {
-          alert('Error al guardar el prompt');
+          customAlert('Atención', 'Error al guardar el prompt');
         }
       } catch (e) {
-        alert('Error de conexión');
+        customAlert('Atención', 'Error de conexión');
       } finally {
         btn.innerText = originalText;
         btn.disabled = false;

@@ -61,7 +61,11 @@ export default {
     stateManager.resetHistoryIdleTimer(channelId);
 
     // Banderas y función de Extracción automática de memorias (cada 15 mensajes)
-    const shouldExtract = memoryManager.incrementMessageCount(guildId, userId);
+    // Solo extrae si Layla está activada en el canal (talk)
+    let shouldExtract = false;
+    if (stateManager.isChannelActive(channelId)) {
+      shouldExtract = memoryManager.incrementMessageCount(guildId, userId);
+    }
     const executeMemoryExtraction = () => {
       const historyContents = stateManager.buildExtractionHistory(channelId, userId);
       if (historyContents.length > 0) {
