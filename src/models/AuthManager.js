@@ -17,76 +17,74 @@ class AuthManager {
   }
 
   initDb() {
-    const query = `
-      CREATE TABLE IF NOT EXISTS admins (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        password_hash TEXT NOT NULL,
-        session_token TEXT
-      )
-    `;
-    this.db.run(query, (err) => {
-      if (err) console.error('[AUTH] Error creando tabla admins:', err.message);
+    this.db.serialize(() => {
+      // Create users table
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS dashboard_users (
+          discord_id TEXT PRIMARY KEY,
+          username TEXT NOT NULL,
+          avatar TEXT
+        )
+      `);
+
+      // Create sessions table
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS dashboard_sessions (
+          token TEXT PRIMARY KEY,
+          discord_id TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(discord_id) REFERENCES dashboard_users(discord_id)
+        )
+      `);
     });
   }
 
-  async hasAdmin() {
+  async createOrUpdateUser(discordId, username, avatar) {
     return new Promise((resolve, reject) => {
-      this.db.get(`SELECT COUNT(*) as count FROM admins`, (err, row) => {
-        if (err) return reject(err);
-        resolve(row.count > 0);
-      });
-    });
-  }
-
-  async registerAdmin(password) {
-    const hasAdmin = await this.hasAdmin();
-    if (hasAdmin) {
-      throw new Error('Ya existe un administrador registrado. No se puede registrar otro.');
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const hash = await bcrypt.hash(password, salt);
-
-    return new Promise((resolve, reject) => {
-      this.db.run(`INSERT INTO admins (password_hash) VALUES (?)`, [hash], function(err) {
+      const query = `
+        INSERT INTO dashboard_users (discord_id, username, avatar)
+        VALUES (?, ?, ?)
+        ON CONFLICT(discord_id) DO UPDATE SET
+          username = excluded.username,
+          avatar = excluded.avatar
+      `;
+      this.db.run(query, [discordId, username, avatar], function(err) {
         if (err) return reject(err);
         resolve(true);
       });
     });
   }
 
-  async loginAdmin(password) {
+  async createSession(discordId) {
+    const token = crypto.randomBytes(32).toString('hex');
     return new Promise((resolve, reject) => {
-      this.db.get(`SELECT id, password_hash FROM admins LIMIT 1`, async (err, row) => {
+      this.db.run(`INSERT INTO dashboard_sessions (token, discord_id) VALUES (?, ?)`, [token, discordId], function(err) {
         if (err) return reject(err);
-        if (!row) return resolve(null); // No admin
-
-        const isValid = await bcrypt.compare(password, row.password_hash);
-        if (!isValid) return resolve(null); // Contraseña incorrecta
-
-        const token = crypto.randomBytes(32).toString('hex');
-        this.db.run(`UPDATE admins SET session_token = ? WHERE id = ?`, [token, row.id], (updateErr) => {
-          if (updateErr) return reject(updateErr);
-          resolve(token);
-        });
+        resolve(token);
       });
     });
   }
 
-  async validateToken(token) {
-    if (!token) return false;
+  async getUserByToken(token) {
+    if (!token) return null;
     return new Promise((resolve, reject) => {
-      this.db.get(`SELECT id FROM admins WHERE session_token = ?`, [token], (err, row) => {
+      const query = `
+        SELECT u.discord_id as id, u.username, u.avatar 
+        FROM dashboard_sessions s
+        JOIN dashboard_users u ON s.discord_id = u.discord_id
+        WHERE s.token = ?
+      `;
+      this.db.get(query, [token], (err, row) => {
         if (err) return reject(err);
-        resolve(!!row);
+        resolve(row || null);
       });
     });
   }
 
-  async logoutAdmin(token) {
+  async logout(token) {
     if (!token) return;
     return new Promise((resolve, reject) => {
-      this.db.run(`UPDATE admins SET session_token = NULL WHERE session_token = ?`, [token], (err) => {
+      this.db.run(`DELETE FROM dashboard_sessions WHERE token = ?`, [token], (err) => {
         if (err) return reject(err);
         resolve();
       });

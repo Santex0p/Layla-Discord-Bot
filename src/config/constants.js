@@ -12,6 +12,8 @@ export const CONFIG = {
   MEDIA_DOMAIN: process.env.MEDIA_DOMAIN,
   DASHBOARD_DOMAIN: process.env.DASHBOARD_DOMAIN,
   DEFAULT_LANG: process.env.DEFAULT_LANG || 'es',
+  DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET,
+  SUPERADMIN_ID: process.env.SUPERADMIN_ID,
 
   // Instrucciones
   LIVE_SYSTEM_INSTRUCTION: `Rol: Layla (chica humana real, chat voz).

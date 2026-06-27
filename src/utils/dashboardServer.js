@@ -216,16 +216,99 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --- RUTAS DE AUTENTICACIÓN ---
+  function getRedirectUri(req) {
+    if (process.env.DASHBOARD_DOMAIN) {
+      const isLocal = process.env.DASHBOARD_DOMAIN.includes('localhost') || process.env.DASHBOARD_DOMAIN.includes('127.0.0.1');
+      const protocol = isLocal ? 'http' : 'https';
+      // Remove trailing slash if present
+      const cleanDomain = process.env.DASHBOARD_DOMAIN.replace(/\/$/, '');
+      // Handle case where DASHBOARD_DOMAIN already includes protocol
+      if (cleanDomain.startsWith('http')) {
+        return `${cleanDomain}/api/auth/callback`;
+      }
+      return `${protocol}://${cleanDomain}/api/auth/callback`;
+    }
+    const protocol = req.headers['x-forwarded-proto'] || 'http';
+    const host = req.headers.host;
+    return `${protocol}://${host}/api/auth/callback`;
+  }
+
+  if (req.url.startsWith('/api/auth/login') && req.method === 'GET') {
+    const redirectUri = encodeURIComponent(getRedirectUri(req));
+    const clientId = process.env.APP_ID;
+    const scope = encodeURIComponent('identify guilds');
+    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}`;
+    
+    res.writeHead(302, { 'Location': discordAuthUrl });
+    res.end();
+    return;
+  }
+
+  if (req.url.startsWith('/api/auth/callback') && req.method === 'GET') {
+    try {
+      const urlParams = new URLSearchParams(req.url.split('?')[1]);
+      const code = urlParams.get('code');
+      if (!code) throw new Error('No code provided');
+
+      // 1. Obtener Token de Discord
+      const tokenParams = new URLSearchParams({
+        client_id: process.env.APP_ID,
+        client_secret: process.env.DISCORD_CLIENT_SECRET,
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: getRedirectUri(req)
+      });
+
+      const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+        method: 'POST',
+        body: tokenParams,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+      const tokenData = await tokenRes.json();
+      if (!tokenRes.ok) throw new Error(tokenData.error_description || tokenData.error || 'Error getting token');
+
+      // 2. Obtener Perfil del Usuario
+      const userRes = await fetch('https://discord.com/api/users/@me', {
+        headers: { authorization: `${tokenData.token_type} ${tokenData.access_token}` }
+      });
+      const userData = await userRes.json();
+      if (!userRes.ok) throw new Error('Error getting user data');
+
+      const avatar = userData.avatar 
+        ? `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png`
+        : `https://cdn.discordapp.com/embed/avatars/${parseInt(userData.discriminator || 0) % 5}.png`;
+
+      // 3. Crear sesión local
+      await authManager.createOrUpdateUser(userData.id, userData.username, avatar);
+      const sessionToken = await authManager.createSession(userData.id);
+
+      res.writeHead(302, {
+        'Location': '/',
+        'Set-Cookie': `LaylaAuth=${sessionToken}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Lax`
+      });
+      res.end();
+    } catch (e) {
+      console.error('[AUTH] Callback Error:', e);
+      res.writeHead(302, { 'Location': `/?error=auth_failed&reason=${encodeURIComponent(e.message)}` });
+      res.end();
+    }
+    return;
+  }
+
   if (req.url.startsWith('/api/auth/status') && req.method === 'POST') {
     try {
       const cookies = parseCookies(req);
-      const hasAdmin = await authManager.hasAdmin();
-      const isValidToken = await authManager.validateToken(cookies.LaylaAuth);
+      const user = await authManager.getUserByToken(cookies.LaylaAuth);
+      
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
       });
-      res.end(JSON.stringify({ hasAdmin, isAuth: isValidToken }));
+      res.end(JSON.stringify({ 
+        isAuth: !!user,
+        user: user || null,
+        isSuperAdmin: user ? user.id === process.env.SUPERADMIN_ID : false
+      }));
     } catch (e) {
       console.error('[AUTH] Error en status:', e);
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -234,57 +317,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.url === '/api/auth/register' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk.toString(); if (body.length > 51200) req.destroy(); });
-    req.on('end', async () => {
-      try {
-        const { password } = JSON.parse(body);
-        if (!password || password.length < 4) throw new Error('Contraseña demasiado corta');
-        await authManager.registerAdmin(password);
-
-        const token = await authManager.loginAdmin(password);
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Set-Cookie': `LaylaAuth=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict`
-        });
-        res.end(JSON.stringify({ success: true }));
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
-      }
-    });
-    return;
-  }
-
-  if (req.url === '/api/auth/login' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk.toString(); if (body.length > 51200) req.destroy(); });
-    req.on('end', async () => {
-      try {
-        const { password } = JSON.parse(body);
-        const token = await authManager.loginAdmin(password);
-        if (token) {
-          res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Set-Cookie': `LaylaAuth=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict`
-          });
-          res.end(JSON.stringify({ success: true }));
-        } else {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Contraseña incorrecta' }));
-        }
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
-      }
-    });
-    return;
-  }
-
   if (req.url === '/api/auth/logout' && req.method === 'POST') {
     const cookies = parseCookies(req);
-    await authManager.logoutAdmin(cookies.LaylaAuth);
+    await authManager.logout(cookies.LaylaAuth);
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Set-Cookie': `LaylaAuth=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict`
@@ -295,20 +330,58 @@ const server = http.createServer(async (req, res) => {
 
   // --- MIDDLEWARE DE PROTECCIÓN ---
   const isApiOrStream = req.url.startsWith('/api/') || req.url === '/stream';
+  let currentUser = null;
   if (isApiOrStream) {
     const cookies = parseCookies(req);
-    const isValidToken = await authManager.validateToken(cookies.LaylaAuth);
-    if (!isValidToken) {
+    currentUser = await authManager.getUserByToken(cookies.LaylaAuth);
+    if (!currentUser && !req.url.startsWith('/api/auth/')) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }
   }
 
+  // --- HELPER DE AUTORIZACIÓN ---
+  async function hasServerAccess(user, guildId) {
+    if (!user) return false;
+    if (user.id === process.env.SUPERADMIN_ID) return true; // Superadmin tiene acceso a todo
+    if (!discordClient) return false;
+    
+    try {
+      const guild = await discordClient.guilds.fetch(guildId);
+      if (!guild) return false;
+      const member = await guild.members.fetch(user.id);
+      if (!member) return false;
+      // Verificar si tiene permiso de administrador en ese servidor
+      return member.permissions.has('Administrator');
+    } catch (e) {
+      // Puede ser que el usuario no esté en el servidor o el bot no pueda acceder
+      return false;
+    }
+  }
+
+  async function checkGuildAccess(req, res, guildId) {
+    if (!(await hasServerAccess(currentUser, guildId))) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Requiere permisos de Administrador' }));
+      return false;
+    }
+    return true;
+  }
+
+  function checkSuperAdmin(req, res) {
+    if (!currentUser || currentUser.id !== process.env.SUPERADMIN_ID) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Solo Super Admin' }));
+      return false;
+    }
+    return true;
+  }
+
   // --- SERVIDOR DE ARCHIVOS ESTÁTICOS ---
   if (!isApiOrStream && req.method === 'GET') {
-    let reqPath = req.url === '/' ? '/index.html' : req.url;
-    reqPath = reqPath.split('?')[0]; // Remover query strings
+    let reqPath = req.url.split('?')[0]; // Remover query strings
+    if (reqPath === '/') reqPath = '/index.html';
 
     // Evitar directory traversal
     const safePath = path.normalize(decodeURIComponent(reqPath));
@@ -353,6 +426,7 @@ const server = http.createServer(async (req, res) => {
 
   // Ruta SSE: Stream de Logs
   if (req.url === '/stream') {
+    if (!checkSuperAdmin(req, res)) return;
     // Configurar cabeceras obligatorias para SSE
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -399,7 +473,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     const data = {};
     for (const [id, info] of guildPromptManager.prompts.entries()) {
-      data[id] = info;
+      if (await hasServerAccess(currentUser, id)) {
+        data[id] = info;
+      }
     }
     res.end(JSON.stringify(data));
     return;
@@ -409,6 +485,8 @@ const server = http.createServer(async (req, res) => {
   if (req.url.match(/^\/api\/servers\/[^/]+\/channels(\?.*)?$/) && req.method === 'GET') {
     try {
       const guildId = req.url.split('/')[3];
+      if (!(await checkGuildAccess(req, res, guildId))) return;
+
       if (discordClient) {
         const guild = discordClient.guilds.cache.get(guildId);
         if (guild) {
@@ -438,6 +516,7 @@ const server = http.createServer(async (req, res) => {
   // API GET: Listar miembros de un servidor (para selectores de Relaciones y Memorias)
   if (req.url.match(/^\/api\/servers\/[^/]+\/members$/) && req.method === 'GET') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     try {
       if (discordClient) {
         const guild = discordClient.guilds.cache.get(guildId);
@@ -474,6 +553,7 @@ const server = http.createServer(async (req, res) => {
 
   // API GET: Obtener lista de relaciones globales
   if (req.url === '/api/global-relationships' && req.method === 'GET') {
+    if (!checkSuperAdmin(req, res)) return;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(memoryManager.getAllGlobalRelationships()));
     return;
@@ -481,6 +561,7 @@ const server = http.createServer(async (req, res) => {
 
   // API POST: Añadir/editar relación global
   if (req.url === '/api/global-relationships' && req.method === 'POST') {
+    if (!checkSuperAdmin(req, res)) return;
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
@@ -508,6 +589,7 @@ const server = http.createServer(async (req, res) => {
 
   // API DELETE: Eliminar relación global
   if (req.url.startsWith('/api/global-relationships/') && req.method === 'DELETE') {
+    if (!checkSuperAdmin(req, res)) return;
     const userId = req.url.split('/')[3];
     try {
       const deleted = memoryManager.deleteGlobalRelationship(userId);
@@ -529,6 +611,7 @@ const server = http.createServer(async (req, res) => {
   // API POST: Actualizar el prompt de un servidor
   if (req.url.match(/^\/api\/servers\/[^/]+$/) && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     let body = '';
     req.on('data', chunk => {
       body += chunk.toString();
@@ -561,6 +644,7 @@ const server = http.createServer(async (req, res) => {
   // API POST: Expulsar al bot de un servidor
   if (req.url.startsWith('/api/servers/') && req.url.endsWith('/leave') && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     if (discordClient) {
       const guild = discordClient.guilds.cache.get(guildId);
       if (guild) {
@@ -590,6 +674,7 @@ const server = http.createServer(async (req, res) => {
 
   // API GET: Obtener ajustes globales
   if (req.url === '/api/settings' && req.method === 'GET') {
+    if (!checkSuperAdmin(req, res)) return;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(globalSettingsManager.getAll()));
     return;
@@ -638,6 +723,7 @@ const server = http.createServer(async (req, res) => {
 
   // API POST: Actualizar un ajuste global
   if (req.url === '/api/settings' && req.method === 'POST') {
+    if (!checkSuperAdmin(req, res)) return;
     let body = '';
     req.on('data', chunk => {
       body += chunk.toString();
@@ -669,6 +755,7 @@ const server = http.createServer(async (req, res) => {
   // API POST: Actualizar idioma de un servidor
   if (req.url.match(/^\/api\/servers\/[^/]+\/language$/) && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     let body = '';
     req.on('data', chunk => {
       body += chunk.toString();
@@ -703,6 +790,7 @@ const server = http.createServer(async (req, res) => {
   // API POST: Actualizar configuración de Respuesta Directa a Layla
   if (req.url.match(/^\/api\/servers\/[^/]+\/reply-setting$/) && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     let body = '';
     req.on('data', chunk => {
       body += chunk.toString();
@@ -735,6 +823,7 @@ const server = http.createServer(async (req, res) => {
   // API POST: Actualizar configuración de Detonantes (Triggers)
   if (req.url.match(/^\/api\/servers\/[^/]+\/triggers$/) && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     let body = '';
     req.on('data', chunk => {
       body += chunk.toString();
@@ -773,6 +862,7 @@ const server = http.createServer(async (req, res) => {
   // GET: Obtener todas las relaciones de un servidor
   if (req.url.match(/^\/api\/servers\/[^/]+\/relationships$/) && req.method === 'GET') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     const relationships = memoryManager.getAllRelationships(guildId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(relationships));
@@ -782,6 +872,7 @@ const server = http.createServer(async (req, res) => {
   // POST: Crear/actualizar una relación
   if (req.url.match(/^\/api\/servers\/[^/]+\/relationships$/) && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); if (body.length > 4096) req.destroy(); });
     req.on('end', () => {
@@ -807,6 +898,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url.match(/^\/api\/servers\/[^/]+\/relationships\/[^/]+$/) && req.method === 'DELETE') {
     const parts = req.url.split('/');
     const guildId = parts[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     const userId = parts[5];
     const success = memoryManager.deleteRelationship(guildId, userId);
     res.writeHead(success ? 200 : 404, { 'Content-Type': 'application/json' });
@@ -819,6 +911,7 @@ const server = http.createServer(async (req, res) => {
   // GET: Obtener todas las memorias de un servidor
   if (req.url.match(/^\/api\/servers\/[^/]+\/memories$/) && req.method === 'GET') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     const memories = memoryManager.getAllMemories(guildId);
     // Enviar sin embeddings para no saturar el payload
     const cleaned = {};
@@ -833,6 +926,7 @@ const server = http.createServer(async (req, res) => {
   // POST: Añadir una memoria manualmente
   if (req.url.match(/^\/api\/servers\/[^/]+\/memories$/) && req.method === 'POST') {
     const guildId = req.url.split('/')[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); if (body.length > 8192) req.destroy(); });
     req.on('end', async () => {
@@ -858,6 +952,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url.match(/^\/api\/servers\/[^/]+\/memories\/user\/[^/]+$/) && req.method === 'DELETE') {
     const parts = req.url.split('/');
     const guildId = parts[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     const userId = parts[6];
     const success = memoryManager.deleteAllUserMemories(guildId, userId);
     res.writeHead(success ? 200 : 404, { 'Content-Type': 'application/json' });
@@ -869,6 +964,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url.match(/^\/api\/servers\/[^/]+\/memories\/[^/]+\/[^/]+$/) && req.method === 'DELETE') {
     const parts = req.url.split('/');
     const guildId = parts[3];
+    if (!(await checkGuildAccess(req, res, guildId))) return;
     const userId = parts[5];
     const memoryId = parts[6];
     const success = memoryManager.deleteMemory(guildId, userId, memoryId);

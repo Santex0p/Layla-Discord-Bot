@@ -74,6 +74,10 @@
       });
     });
 
+    // --- GLOBALS ---
+    let currentUser = null;
+    let isSuperAdmin = false;
+
     // --- LOGIC: AUTH ---
     async function checkAuth() {
       try {
@@ -88,11 +92,34 @@
         
         document.getElementById('sidebar').classList.toggle('hidden', !data.isAuth);
         
-        if (data.hasAdmin === false) {
-          switchView('view-register');
-        } else if (data.isAuth === false) {
+        if (data.isAuth === false) {
           switchView('view-login');
         } else {
+          currentUser = data.user;
+          isSuperAdmin = data.isSuperAdmin;
+
+          // Actualizar UI del perfil
+          const profileAvatar = document.getElementById('user-profile-avatar');
+          const profileName = document.getElementById('user-profile-name');
+          const profileRole = document.getElementById('user-profile-role');
+          if (profileAvatar) {
+            profileAvatar.src = currentUser.avatar;
+          }
+          if (profileName) {
+            profileName.innerText = currentUser.username;
+          }
+          if (profileRole) {
+            profileRole.innerText = isSuperAdmin ? 'SuperAdmin' : 'Admin de Servidor';
+            if (isSuperAdmin) profileRole.style.color = 'var(--accent)';
+          }
+
+          // Ocultar tabs globales si no es superadmin
+          if (!isSuperAdmin) {
+            document.querySelector('.nav-item[data-target="view-settings"]')?.remove();
+            document.querySelector('.nav-item[data-target="view-global-relationships"]')?.remove();
+            document.querySelector('.nav-item[data-target="view-console"]')?.remove();
+          }
+
           // If URL has a hash, load it on startup, otherwise view-servers
           let hash = window.location.hash.replace('#', '');
           if (hash.startsWith('subview-')) hash = 'view-servers'; // Fallback if refreshing inside a server subview
@@ -100,8 +127,10 @@
           switchView(initialView, true);
           
           loadServers();
-          loadSettings();
-          loadGlobalRelationships();
+          if (isSuperAdmin) {
+            loadSettings();
+            loadGlobalRelationships();
+          }
           connectSSE();
         }
       } catch(e) {
@@ -110,24 +139,12 @@
       }
     }
 
-    async function doLogin() {
-      const btn = document.querySelector('#view-login button');
-      btn.disabled = true;
-      btn.innerText = 'Cargando...';
-      const pass = document.getElementById('login-password').value;
-      const res = await fetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: pass }) });
-      if(res.ok) { window.location.href = '/'; }
-      else { const d = await res.json(); customAlert('Atención', d.error || 'Login failed'); btn.disabled = false; btn.innerText = 'Ingresar'; }
+    function doLogin() {
+      window.location.href = '/api/auth/login';
     }
 
-    async function doRegister() {
-      const btn = document.querySelector('#view-register button');
-      btn.disabled = true;
-      btn.innerText = 'Cargando...';
-      const pass = document.getElementById('register-password').value;
-      const res = await fetch('/api/auth/register', { method: 'POST', body: JSON.stringify({ password: pass }) });
-      if(res.ok) { window.location.href = '/'; }
-      else { const d = await res.json(); customAlert('Atención', d.error || 'Register failed'); btn.disabled = false; btn.innerText = 'Registrar Admin'; }
+    function doRegister() {
+      // Obsoleto
     }
 
     async function doLogout() {
@@ -156,6 +173,10 @@
         const data = await res.json();
         const grid = document.getElementById('servers-grid');
         grid.innerHTML = '';
+        if (Object.keys(data).length === 0) {
+          grid.innerHTML = '<div style="color: var(--text-muted); padding: 20px;">No tienes permisos de administrador en ningún servidor donde Layla esté instalada.</div>';
+          return;
+        }
 
         for (const [guildId, info] of Object.entries(data)) {
           const letter = info.serverName ? info.serverName.charAt(0).toUpperCase() : '?';
@@ -297,12 +318,41 @@
       });
     }
 
-    async function leaveServer() {
+    async function deleteServerData() {
       if (!currentEditingGuild) return;
       const confirmed = await customConfirm(
-        '¿Expulsar a Layla?',
-        '¿Estás 100% seguro de que quieres expulsar a Layla de este servidor? Tendrás que volver a invitarla manualmente con el enlace de Discord si te arrepientes.',
-        'Sí, expulsarla'
+        '¿Borrar todos los datos?',
+        '¿Estás seguro de que quieres borrar TODAS las memorias, relaciones y configuración de Layla en este servidor? Esto NO se puede deshacer.',
+        'Sí, borrar datos'
+      );
+      if (confirmed) {
+        executeDeleteServerData();
+      }
+    }
+
+    async function executeDeleteServerData() {
+      if (!currentEditingGuild) return;
+
+      try {
+        const res = await fetch(`/api/servers/${currentEditingGuild}/data`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          closeServerSettings();
+          showToast("Datos borrados exitosamente");
+        } else {
+          customAlert('Atención', 'Error al borrar datos');
+        }
+      } catch (e) {
+        customAlert('Atención', 'Error de conexión');
+      }
+    }
+
+    window.confirmLeaveServer = async function() {
+      const confirmed = await customConfirm(
+        '¿Salir del Servidor?',
+        '¿Estás seguro de que quieres que Layla abandone este servidor? Tendrás que volver a invitarla manualmente si quieres que vuelva.',
+        'Sí, que abandone el servidor'
       );
       if (confirmed) {
         executeLeaveServer();
