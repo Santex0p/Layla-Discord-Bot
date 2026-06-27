@@ -1112,6 +1112,10 @@
   top: 0;
 }
 
+body.hide-mobile-header .mobile-header {
+  display: none !important;
+}
+
 .hamburger-btn {
   background: none;
   border: none;
@@ -1153,13 +1157,7 @@
     width: 100%;
   }
   
-  .view {
-    top: 64px;
-    height: calc(100% - 64px);
-    position: absolute;
-    width: 100%;
-  }
-  
+
   .sidebar {
     position: fixed;
     top: 0;

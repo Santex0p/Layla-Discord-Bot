@@ -90,7 +90,23 @@
           return;
         }
         
-        document.getElementById('sidebar').classList.toggle('hidden', !data.isAuth);
+        if (data.isAuth && data.user && data.user.isGuest) {
+          const navEntries = performance.getEntriesByType('navigation');
+          if (navEntries.length > 0 && navEntries[0].type === 'reload') {
+            document.body.style.opacity = '0'; // Esconder todo mientras desloguea
+            await doLogout();
+            return;
+          }
+        }
+        
+        document.getElementById('sidebar').classList.toggle('hidden', !data.isAuth || (data.user && data.user.isGuest));
+        
+        const mobileHeader = document.getElementById('mobile-header');
+        if (!data.isAuth || (data.user && data.user.isGuest)) {
+          if (mobileHeader) mobileHeader.style.display = 'none';
+        } else {
+          if (mobileHeader) mobileHeader.style.display = '';
+        }
         
         if (data.isAuth === false) {
           switchView('view-login');
@@ -109,8 +125,26 @@
             profileName.innerText = currentUser.username;
           }
           if (profileRole) {
-            profileRole.innerText = isSuperAdmin ? 'SuperAdmin' : 'Admin de Servidor';
-            if (isSuperAdmin) profileRole.style.color = 'var(--accent)';
+            if (currentUser.isGuest) {
+              profileRole.innerText = 'Invitado (Demo)';
+              profileRole.style.color = '#ffaa00';
+            } else {
+              profileRole.innerText = isSuperAdmin ? 'SuperAdmin' : 'Admin de Servidor';
+              if (isSuperAdmin) profileRole.style.color = 'var(--accent)';
+            }
+          }
+
+          if (currentUser.isGuest) {
+            // Ocultar tabs globales y sidebar para invitados
+            document.querySelectorAll('.nav-item').forEach(el => el.style.display = 'none');
+            
+            // Mostrar botón de salir en la cabecera
+            const guestLogoutBtn = document.getElementById('guest-logout-btn');
+            if (guestLogoutBtn) guestLogoutBtn.style.display = 'block';
+
+            switchView('view-test-chat', true);
+            connectSSE();
+            return;
           }
 
           // Ocultar tabs globales si no es superadmin
@@ -145,6 +179,28 @@
 
     function doRegister() {
       // Obsoleto
+    }
+
+    async function doGuestLogin() {
+      const btn = document.querySelector('button[onclick="doGuestLogin()"]');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = 'Entrando...';
+      }
+      try {
+        const res = await fetch('/api/auth/guest', { method: 'POST' });
+        if (res.ok) {
+          window.location.href = '/';
+        } else {
+          customAlert('Atención', 'Error al entrar como invitado');
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = 'Continuar como Invitado';
+          }
+        }
+      } catch (e) {
+        customAlert('Error', 'No se pudo conectar al servidor');
+      }
     }
 
     async function doLogout() {
@@ -699,7 +755,7 @@
 
         const entries = Object.entries(data);
         if (entries.length === 0) {
-          container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">No hay memorias aÃºn. Se crearÃ¡n automÃ¡ticamente o puedes aÃ±adirlas manualmente.</span>';
+          container.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">No hay memorias aún. Se crearán automáticamente o puedes añadirlas manualmente.</span>';
           return;
         }
 
@@ -710,7 +766,7 @@
           });
         }
         
-        // Ordenar de mÃ¡s reciente a mÃ¡s antiguo
+        // Ordenar de más reciente a más antiguo
         allMemories.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         for (const mem of allMemories) {
@@ -723,13 +779,13 @@
           div.innerHTML = `
             <img class="memory-avatar" src="${avatarUrl}" alt="Avatar">
             <div class="memory-content-box">
-              <div class="memory-badge">MEMORIA MANUAL â€¢ ${resolvedName}</div>
+              <div class="memory-badge">MEMORIA MANUAL • ${resolvedName}</div>
               <div class="memory-text">${mem.text}</div>
             </div>
             <div class="memory-date-pill">${date}</div>
             <div class="memory-actions">
-              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="editMemory('${mem.userId}', '${mem.id}', '${mem.text.replace(/'/g, "\\'")}')">âœï¸</button>
-              <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" onclick="deleteMemory('${mem.userId}', '${mem.id}')">Ã—</button>
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.8rem;" onclick="editMemory('${mem.userId}', '${mem.id}', '${mem.text.replace(/'/g, "\\'")}')">Editar</button>
+              <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" onclick="deleteMemory('${mem.userId}', '${mem.id}')">Borrar</button>
             </div>
           `;
           container.appendChild(div);

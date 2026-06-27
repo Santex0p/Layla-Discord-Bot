@@ -385,6 +385,13 @@ class ChannelStateManager {
       }
     }
   }
+
+  resetAllLiveSessions() {
+    for (const channelId of this.liveChannelStates.keys()) {
+      console.log(`[STATE] Forzando reinicio de sesión GLOBAL para canal ${channelId} por cambio de prompt global.`);
+      this.resetLiveSession(channelId, { clearHandle: true });
+    }
+  }
 }
 
 // Exportamos un singleton para mantener un único estado de la app

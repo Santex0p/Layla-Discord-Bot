@@ -7,6 +7,7 @@ import globalSettingsManager from '../models/GlobalSettingsManager.js';
 import authManager from '../models/AuthManager.js';
 import voskModelManager from '../models/VoskModelManager.js';
 import memoryManager from '../models/MemoryManager.js';
+import stateManager from '../models/ChannelStateManager.js';
 import aiService from '../services/AiService.js';
 import audioService from '../services/AudioService.js';
 import { promises as fsPromises } from 'node:fs';
@@ -298,10 +299,30 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/api/auth/guest' && req.method === 'POST') {
+    const guestId = 'guest_' + Date.now() + Math.random().toString(36).substr(2, 5);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Set-Cookie': `LaylaAuth=${guestId}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax`
+    });
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
   if (req.url.startsWith('/api/auth/status') && req.method === 'POST') {
     try {
       const cookies = parseCookies(req);
-      const user = await authManager.getUserByToken(cookies.LaylaAuth);
+      let user = null;
+      if (cookies.LaylaAuth && cookies.LaylaAuth.startsWith('guest_')) {
+        user = {
+          id: cookies.LaylaAuth,
+          username: 'Usuario',
+          avatar: 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png',
+          isGuest: true
+        };
+      } else {
+        user = await authManager.getUserByToken(cookies.LaylaAuth);
+      }
       
       res.writeHead(200, {
         'Content-Type': 'application/json',
@@ -336,7 +357,16 @@ const server = http.createServer(async (req, res) => {
   let currentUser = null;
   if (isApiOrStream) {
     const cookies = parseCookies(req);
-    currentUser = await authManager.getUserByToken(cookies.LaylaAuth);
+    if (cookies.LaylaAuth && cookies.LaylaAuth.startsWith('guest_')) {
+      currentUser = {
+        id: cookies.LaylaAuth,
+        username: 'Usuario',
+        avatar: 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png',
+        isGuest: true
+      };
+    } else {
+      currentUser = await authManager.getUserByToken(cookies.LaylaAuth);
+    }
     if (!currentUser && !req.url.startsWith('/api/auth/')) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
@@ -409,17 +439,17 @@ const server = http.createServer(async (req, res) => {
       }
 
       const ext = path.extname(filePath).toLowerCase();
-      let contentType = 'text/plain';
-      if (ext === '.html') contentType = 'text/html';
-      else if (ext === '.css') contentType = 'text/css';
-      else if (ext === '.js') contentType = 'application/javascript';
+      let contentType = 'text/plain; charset=utf-8';
+      if (ext === '.html') contentType = 'text/html; charset=utf-8';
+      else if (ext === '.css') contentType = 'text/css; charset=utf-8';
+      else if (ext === '.js') contentType = 'application/javascript; charset=utf-8';
       else if (ext === '.png') contentType = 'image/png';
       else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
       else if (ext === '.gif') contentType = 'image/gif';
-      else if (ext === '.svg') contentType = 'image/svg+xml';
+      else if (ext === '.svg') contentType = 'image/svg+xml; charset=utf-8';
       else if (ext === '.webp') contentType = 'image/webp';
       else if (ext === '.ico') contentType = 'image/x-icon';
-      else if (ext === '.json') contentType = 'application/json';
+      else if (ext === '.json') contentType = 'application/json; charset=utf-8';
 
       res.writeHead(200, { 'Content-Type': contentType });
       res.end(data);
@@ -717,6 +747,7 @@ const server = http.createServer(async (req, res) => {
         if (parsed.prompt) {
           const success = guildPromptManager.setPrompt(guildId, parsed.prompt);
           if (success) {
+            stateManager.resetSessionsForGuild(guildId);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
           } else {
@@ -829,6 +860,12 @@ const server = http.createServer(async (req, res) => {
         for (const [key, value] of Object.entries(parsed)) {
           globalSettingsManager.set(key, value);
         }
+        
+        // Si cambia el prompt global o idioma, reiniciar todas las sesiones
+        if (parsed.globalPrompt !== undefined || parsed.botLanguage !== undefined) {
+          stateManager.resetAllLiveSessions();
+        }
+        
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true }));
       } catch (e) {
