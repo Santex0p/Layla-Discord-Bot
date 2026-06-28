@@ -167,9 +167,24 @@
 
     <!-- VISTA: CHAT DE PRUEBA -->
     <div id="view-test-chat" class="view" style="flex-direction: column; height: 100%;">
-      <div class="header-bar" style="display: flex; justify-content: space-between; align-items: center;">
+      <!-- Cabecera Normal (Admins) -->
+      <div id="admin-test-chat-header" class="header-bar" style="display: flex; justify-content: space-between; align-items: center;">
         <h1>Chat de Prueba (Global)</h1>
-        <button id="guest-logout-btn" class="btn btn-secondary" style="display: none; padding: 6px 12px; font-size: 0.85rem;" onclick="doLogout()">Salir</button>
+      </div>
+
+      <!-- Cabecera Especial (Invitados) -->
+      <div id="guest-test-chat-header" class="header-bar" style="display: none; justify-content: space-between; align-items: center; border-radius: 30px; margin: 30px 16px 16px 16px; background: rgba(0,0,0,0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); padding: 10px 20px; height: 64px; box-sizing: border-box;">
+        <div style="display: flex; align-items: center; position: relative; height: 100%;">
+          <div style="width: 105px; height: 105px; flex-shrink: 0; background: rgba(20,20,30,0.8); backdrop-filter: blur(12px); border-radius: 50%; display: flex; justify-content: center; align-items: center; border: 1px solid rgba(255,255,255,0.1); position: absolute; left: -15px; top: 50%; transform: translateY(-50%); z-index: 2; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+            <div style="animation: floatAvatar 4s infinite ease-in-out; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%;">
+              <img src="/img/layla-avatar.png" alt="Layla" style="width: 90px; height: 90px; flex-shrink: 0; border-radius: 50%; cursor: pointer; border: 2px solid var(--accent); transition: transform 0.2s; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); object-fit: cover;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'" onclick="openBotProfile()" title="Ver perfil de Layla">
+            </div>
+          </div>
+          <h1 style="margin: 0; font-size: 1.3rem; margin-left: 105px; z-index: 1;">Chat de Prueba (Global)</h1>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center; z-index: 1;">
+          <button class="btn btn-secondary" style="padding: 6px 14px; border-radius: 20px; font-size: 0.85rem;" onclick="doLogout()">Salir</button>
+        </div>
       </div>
       <div class="view-content"
         style="flex: 1; display: flex; flex-direction: column; overflow: hidden; max-width: 800px; margin: 0 auto; width: 100%; padding-bottom: 0;">
@@ -611,7 +626,7 @@
   <!-- TOAST NOTIFICATION -->
   <div class="toast" id="toast">✅ Cambios guardados con éxito</div>
 
-  <script src="/js/app.js?v=32"></script>
+  <script src="/js/app.js?v=33"></script>
 </body>
 
 </html>

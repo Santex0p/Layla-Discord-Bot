@@ -502,6 +502,13 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API GET: Obtener conteo total de servidores
+  if (req.url === '/api/servers/count' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ count: guildPromptManager.prompts.size }));
+    return;
+  }
+
   // API GET: Obtener lista de servidores y sus prompts
   if (req.url === '/api/servers' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });

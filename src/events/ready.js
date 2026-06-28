@@ -1,5 +1,6 @@
 import guildPromptManager from '../models/GuildPromptManager.js';
 import { ActivityType } from 'discord.js';
+import { CONFIG } from '../config/constants.js';
 
 export default {
   name: 'clientReady',
@@ -19,7 +20,11 @@ export default {
       guildPromptManager.ensureGuildRegistered(guild.id, guild.name, iconUrl);
     });
 
-    // Establecer estado
-    client.user.setActivity('Panel | dbot.universan.fun', { type: ActivityType.Playing });
+    // Establecer estado (Custom Status)
+    client.user.setActivity({
+      name: 'Custom Status',
+      type: ActivityType.Custom,
+      state: `Panel | ${CONFIG.DASHBOARD_DOMAIN.replace(/^https?:\/\//, '')}`
+    });
   }
 };

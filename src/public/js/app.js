@@ -27,7 +27,7 @@
       const targetView = document.getElementById(targetId);
       if (targetView) targetView.classList.add('active');
 
-      if (targetId === 'view-test-chat') {
+      if (targetId === 'view-test-chat' && updateHistory) {
         fetch('/api/test-chat', { method: 'DELETE' }).catch(console.error);
         const chatContainer = document.getElementById('test-chat-messages');
         if (chatContainer && initialTestChatHTML) {
@@ -158,9 +158,11 @@
             // Ocultar tabs globales y sidebar para invitados
             document.querySelectorAll('.nav-item').forEach(el => el.style.display = 'none');
             
-            // Mostrar botón de salir en la cabecera
-            const guestLogoutBtn = document.getElementById('guest-logout-btn');
-            if (guestLogoutBtn) guestLogoutBtn.style.display = 'block';
+            // Toggle headers
+            const adminHeader = document.getElementById('admin-test-chat-header');
+            const guestHeader = document.getElementById('guest-test-chat-header');
+            if (adminHeader) adminHeader.style.display = 'none';
+            if (guestHeader) guestHeader.style.display = 'flex';
 
             switchView('view-test-chat', true);
             connectSSE();
@@ -1265,16 +1267,24 @@
     window.openBotProfile = async function() {
       switchView('view-bot-profile');
       try {
-        const res = await fetch('/api/servers');
+        const res = await fetch('/api/servers/count');
         const data = await res.json();
-        document.getElementById('profile-servers-count').innerText = Object.keys(data).length;
+        document.getElementById('profile-servers-count').innerText = data.count;
       } catch (e) {
         console.error("Error obteniendo conteo de servidores", e);
       }
     };
 
     window.closeBotProfile = function() {
-      switchView('view-servers');
+      if (currentUser && currentUser.isGuest) {
+        switchView('view-test-chat');
+      } else {
+        if (window.history.length > 1) {
+          history.back();
+        } else {
+          switchView('view-servers');
+        }
+      }
     };
 
     async function savePrompt() {
