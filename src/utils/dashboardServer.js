@@ -142,7 +142,7 @@ const server = http.createServer(async (req, res) => {
 
   // --- IMAGEN DE FONDO PERSONALIZADA ---
   if (req.url === '/background.png' && req.method === 'GET') {
-    const filePath = '/app/data/background.png';
+    const filePath = path.join(process.cwd(), 'data', 'background.png');
     fs.readFile(filePath, (err, data) => {
       if (err) {
         res.writeHead(404);
@@ -160,10 +160,11 @@ const server = http.createServer(async (req, res) => {
   // --- SERVIDOR DE CARPETA FISICA (/audios/) ---
   if (req.url.startsWith('/audios/') && req.method === 'GET') {
     const safePath = path.normalize(decodeURIComponent(req.url.replace('/audios', '')));
-    const filePath = path.join('/app/data/audios', safePath);
+    const audiosDir = path.join(process.cwd(), 'data', 'audios');
+    const filePath = path.join(audiosDir, safePath);
 
     // Evitar Path Traversal
-    if (!filePath.startsWith('/app/data/audios')) {
+    if (!filePath.startsWith(audiosDir)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
@@ -514,6 +515,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API DELETE: Reset Test Chat
+  if (req.url === '/api/test-chat' && req.method === 'DELETE') {
+    if (!currentUser) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No autorizado' }));
+      return;
+    }
+    const sessionId = 'dashboard-' + currentUser.id;
+    stateManager.resetLiveSession(sessionId, { clearHandle: true });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
   // API POST: Test Chat
   if (req.url === '/api/test-chat' && req.method === 'POST') {
     if (!currentUser) {
@@ -560,7 +575,7 @@ const server = http.createServer(async (req, res) => {
           const attachmentBuffer = await audioService.pcm16ToMp3Buffer(voiceResponse.audioBuffer);
           const fileId = `layla_test_${Date.now()}`;
           // Usar la misma ruta que en messageCreate.js o path relativo local
-          const audiosDir = '/app/data/audios';
+          const audiosDir = path.join(process.cwd(), 'data', 'audios');
           try { await fsPromises.mkdir(audiosDir, { recursive: true }); } catch (e) { }
           
           const mp3Path = path.join(audiosDir, `${fileId}.mp3`);

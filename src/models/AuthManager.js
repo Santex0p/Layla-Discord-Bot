@@ -1,94 +1,70 @@
-import sqlite3 from 'sqlite3';
-import bcrypt from 'bcryptjs';
-import path from 'path';
-import crypto from 'crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 
-const DB_PATH = path.join(process.cwd(), 'data', 'layla.sqlite');
+const AUTH_FILE = path.join(process.cwd(), 'data', 'auth.json');
 
 class AuthManager {
   constructor() {
-    this.db = new sqlite3.Database(DB_PATH, (err) => {
-      if (err) {
-        console.error('[AUTH] Error conectando a SQLite:', err.message);
-      } else {
-        this.initDb();
-      }
-    });
+    this.data = { users: {}, sessions: {} };
+    this.loadData();
   }
 
-  initDb() {
-    this.db.serialize(() => {
-      // Create users table
-      this.db.run(`
-        CREATE TABLE IF NOT EXISTS dashboard_users (
-          discord_id TEXT PRIMARY KEY,
-          username TEXT NOT NULL,
-          avatar TEXT
-        )
-      `);
+  loadData() {
+    try {
+      if (fs.existsSync(AUTH_FILE)) {
+        const fileContent = fs.readFileSync(AUTH_FILE, 'utf-8');
+        this.data = JSON.parse(fileContent);
+      }
+    } catch (err) {
+      console.error('[AUTH] Error loading auth.json:', err.message);
+    }
+  }
 
-      // Create sessions table
-      this.db.run(`
-        CREATE TABLE IF NOT EXISTS dashboard_sessions (
-          token TEXT PRIMARY KEY,
-          discord_id TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(discord_id) REFERENCES dashboard_users(discord_id)
-        )
-      `);
-    });
+  saveData() {
+    try {
+      fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
+      fs.writeFileSync(AUTH_FILE, JSON.stringify(this.data, null, 2));
+    } catch (err) {
+      console.error('[AUTH] Error saving auth.json:', err.message);
+    }
   }
 
   async createOrUpdateUser(discordId, username, avatar) {
-    return new Promise((resolve, reject) => {
-      const query = `
-        INSERT INTO dashboard_users (discord_id, username, avatar)
-        VALUES (?, ?, ?)
-        ON CONFLICT(discord_id) DO UPDATE SET
-          username = excluded.username,
-          avatar = excluded.avatar
-      `;
-      this.db.run(query, [discordId, username, avatar], function(err) {
-        if (err) return reject(err);
-        resolve(true);
-      });
-    });
+    this.data.users[discordId] = { discordId, username, avatar };
+    this.saveData();
+    return true;
   }
 
   async createSession(discordId) {
     const token = crypto.randomBytes(32).toString('hex');
-    return new Promise((resolve, reject) => {
-      this.db.run(`INSERT INTO dashboard_sessions (token, discord_id) VALUES (?, ?)`, [token, discordId], function(err) {
-        if (err) return reject(err);
-        resolve(token);
-      });
-    });
+    this.data.sessions[token] = {
+      discordId,
+      createdAt: new Date().toISOString()
+    };
+    this.saveData();
+    return token;
   }
 
   async getUserByToken(token) {
     if (!token) return null;
-    return new Promise((resolve, reject) => {
-      const query = `
-        SELECT u.discord_id as id, u.username, u.avatar 
-        FROM dashboard_sessions s
-        JOIN dashboard_users u ON s.discord_id = u.discord_id
-        WHERE s.token = ?
-      `;
-      this.db.get(query, [token], (err, row) => {
-        if (err) return reject(err);
-        resolve(row || null);
-      });
-    });
+    const session = this.data.sessions[token];
+    if (!session) return null;
+    const user = this.data.users[session.discordId];
+    if (!user) return null;
+    return {
+      id: user.discordId,
+      username: user.username,
+      avatar: user.avatar
+    };
   }
 
   async logout(token) {
     if (!token) return;
-    return new Promise((resolve, reject) => {
-      this.db.run(`DELETE FROM dashboard_sessions WHERE token = ?`, [token], (err) => {
-        if (err) return reject(err);
-        resolve();
-      });
-    });
+    if (this.data.sessions[token]) {
+      delete this.data.sessions[token];
+      this.saveData();
+    }
   }
 }
 

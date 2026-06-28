@@ -1,4 +1,5 @@
 import guildPromptManager from '../models/GuildPromptManager.js';
+import { ActivityType } from 'discord.js';
 
 export default {
   name: 'clientReady',
@@ -17,5 +18,8 @@ export default {
       const iconUrl = guild.iconURL({ dynamic: true, size: 128 });
       guildPromptManager.ensureGuildRegistered(guild.id, guild.name, iconUrl);
     });
+
+    // Establecer estado
+    client.user.setActivity('Panel | dbot.universan.fun', { type: ActivityType.Playing });
   }
 };

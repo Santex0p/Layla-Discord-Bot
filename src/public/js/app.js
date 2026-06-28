@@ -1,6 +1,13 @@
 // --- NAVEGACION ---
     const navItems = document.querySelectorAll('.nav-item');
     let currentView = 'view-servers';
+    let initialTestChatHTML = null;
+
+    // Guardar el HTML original del chat de prueba una vez al cargar
+    setTimeout(() => {
+      const tc = document.getElementById('test-chat-messages');
+      if (tc) initialTestChatHTML = tc.innerHTML;
+    }, 100);
 
     // FunciÃ³n para menÃº mÃ³vil
     window.toggleMobileMenu = function() {
@@ -19,6 +26,19 @@
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       const targetView = document.getElementById(targetId);
       if (targetView) targetView.classList.add('active');
+
+      if (targetId === 'view-test-chat') {
+        fetch('/api/test-chat', { method: 'DELETE' }).catch(console.error);
+        const chatContainer = document.getElementById('test-chat-messages');
+        if (chatContainer && initialTestChatHTML) {
+          chatContainer.innerHTML = initialTestChatHTML;
+          // Deshabilitar el input hasta que elija idioma de nuevo
+          const input = document.getElementById('test-chat-input');
+          const btn = document.getElementById('test-chat-send-btn');
+          if (input) input.disabled = true;
+          if (btn) btn.disabled = true;
+        }
+      }
 
       // Update sidebar selection â€” only touch main nav items, not server-nav-items
       if (targetId !== 'view-login' && targetId !== 'view-register') {
