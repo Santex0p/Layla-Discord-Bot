@@ -11,6 +11,7 @@ import stateManager from '../models/ChannelStateManager.js';
 import aiService from '../services/AiService.js';
 import audioService from '../services/AudioService.js';
 import { promises as fsPromises } from 'node:fs';
+import { CONFIG } from '../config/constants.js';
 
 // Puerto del dashboard
 const PORT = 80;
@@ -502,6 +503,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+    // API GET: Info del Bot
+    if (req.url === '/api/bot-info' && req.method === 'GET') {
+      if (discordClient && discordClient.user) {
+        const avatarUrl = discordClient.user.displayAvatarURL({ dynamic: true, size: 512 });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ avatarUrl, tag: discordClient.user.tag }));
+      } else {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Bot no listo' }));
+      }
+    }
+
   // API GET: Obtener conteo total de servidores
   if (req.url === '/api/servers/count' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -568,48 +581,66 @@ const server = http.createServer(async (req, res) => {
       let replyText = null;
 
       try {
-        const voiceResponse = await aiService.enqueueLiveTurn(
-          body.message, 
-          'dashboard-' + currentUser.id, 
-          currentUser.id,
-          currentUser.username,
-          null
-        );
-        
-        replyText = voiceResponse.transcript;
-
-        if (voiceResponse.audioBuffer?.length) {
-          const attachmentBuffer = await audioService.pcm16ToMp3Buffer(voiceResponse.audioBuffer);
-          const fileId = `layla_test_${Date.now()}`;
-          // Usar la misma ruta que en messageCreate.js o path relativo local
-          const audiosDir = path.join(process.cwd(), 'data', 'audios');
-          try { await fsPromises.mkdir(audiosDir, { recursive: true }); } catch (e) { }
+        if (CONFIG.OLLAMA_ONLY) {
+          const ollamaObj = await aiService.generateOllamaReply(
+            body.message,
+            'dashboard-' + currentUser.id,
+            currentUser.id,
+            null
+          );
+          replyText = ollamaObj.transcript;
+        } else {
+          const voiceResponse = await aiService.enqueueLiveTurn(
+            body.message, 
+            'dashboard-' + currentUser.id, 
+            currentUser.id,
+            currentUser.username,
+            null
+          );
           
-          const mp3Path = path.join(audiosDir, `${fileId}.mp3`);
-          const mp4Path = path.join(audiosDir, `${fileId}.mp4`);
-          await fsPromises.writeFile(mp3Path, attachmentBuffer);
+          replyText = voiceResponse.transcript;
 
-          try {
-            await audioService.createMp4WithStaticImage(mp3Path, mp4Path);
-          } catch (e) {
-            console.error('[DASHBOARD] Error creando MP4 en test chat:', e);
-          }
+          if (voiceResponse.audioBuffer?.length) {
+            const attachmentBuffer = await audioService.pcm16ToMp3Buffer(voiceResponse.audioBuffer);
+            const fileId = `layla_test_${Date.now()}`;
+            // Usar la misma ruta que en messageCreate.js o path relativo local
+            const audiosDir = path.join(process.cwd(), 'data', 'audios');
+            try { await fsPromises.mkdir(audiosDir, { recursive: true }); } catch (e) { }
+            
+            const mp3Path = path.join(audiosDir, `${fileId}.mp3`);
+            const mp4Path = path.join(audiosDir, `${fileId}.mp4`);
+            await fsPromises.writeFile(mp3Path, attachmentBuffer);
 
-          const { CONFIG } = await import('../config/constants.js');
-          if (CONFIG.MEDIA_DOMAIN) {
-            audioUrl = `https://${CONFIG.MEDIA_DOMAIN}/${fileId}.mp3`;
+            try {
+              await audioService.createMp4WithStaticImage(mp3Path, mp4Path);
+            } catch (e) {
+              console.error('[DASHBOARD] Error creando MP4 en test chat:', e);
+            }
+
+            if (CONFIG.MEDIA_DOMAIN) {
+              audioUrl = `https://${CONFIG.MEDIA_DOMAIN}/${fileId}.mp3`;
+            }
           }
         }
       } catch (liveError) {
-        console.warn(`[DASHBOARD] Error en sesión Live para test-chat (${liveError.message}). Pasando a fallback de texto...`);
-        // Fallback a texto
-        const fallbackObj = await aiService.generateTextReply(
-          body.message, 
-          'dashboard-' + currentUser.id, 
-          currentUser.id, 
-          null
-        );
-        replyText = fallbackObj.transcript;
+        console.warn(`[DASHBOARD] Error en sesión Live para test-chat (${liveError.message}). Pasando a fallback...`);
+        if (!CONFIG.OLLAMA_ONLY) {
+          const fallbackObj = await aiService.generateTextReply(
+            body.message, 
+            'dashboard-' + currentUser.id, 
+            currentUser.id, 
+            null
+          );
+          replyText = fallbackObj.transcript;
+        } else {
+          const fallbackObj = await aiService.generateOllamaReply(
+            body.message, 
+            'dashboard-' + currentUser.id, 
+            currentUser.id, 
+            null
+          );
+          replyText = fallbackObj.transcript;
+        }
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });

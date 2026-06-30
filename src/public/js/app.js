@@ -1,3 +1,12 @@
+// --- CARGAR AVATAR DINAMICO ---
+    fetch('/api/bot-info').then(res => res.json()).then(data => {
+      if (data.avatarUrl) {
+        document.querySelectorAll('.layla-dynamic-avatar').forEach(img => {
+          img.src = data.avatarUrl;
+        });
+      }
+    }).catch(console.error);
+
 // --- NAVEGACION ---
     const navItems = document.querySelectorAll('.nav-item');
     let currentView = 'view-servers';

@@ -222,8 +222,9 @@ Si no encuentras nada relevante, responde: []`;
     const basePrompt = guildPromptManager.getPrompt(guildId);
 
     // Transformar el formato de Gemini (text) al formato de Ollama (messages)
+    const antiNarratorPrompt = `${basePrompt}\n\nREGLA MUY IMPORTANTE: Eres directamente Layla chateando. NO incluyas "Layla:" al principio de tus respuestas. NO narres acciones ni escribas texto entre paréntesis () o asteriscos **. Responde SOLO con tus palabras, como si estuvieras hablando.`;
     const messages = [
-      { role: 'system', content: basePrompt }
+      { role: 'system', content: antiNarratorPrompt }
     ];
 
     for (const msg of historyContents) {
@@ -254,7 +255,7 @@ Si no encuentras nada relevante, responde: []`;
     }
 
     const data = await response.json();
-    const transcript = data.message?.content?.trim();
+    let transcript = data.message?.content?.trim();
 
     if (!transcript) {
       throw new Error('Ollama no devolvio texto valido.');

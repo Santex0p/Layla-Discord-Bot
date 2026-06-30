@@ -61,9 +61,9 @@ export default {
     stateManager.resetHistoryIdleTimer(channelId);
 
     // Banderas y función de Extracción automática de memorias (cada 15 mensajes)
-    // Solo extrae si Layla está activada en el canal (talk)
+    // Solo extrae si Layla está activada en el canal (talk) y NO en modo Ollama estricto
     let shouldExtract = false;
-    if (stateManager.isChannelActive(channelId)) {
+    if (stateManager.isChannelActive(channelId) && !CONFIG.OLLAMA_ONLY) {
       shouldExtract = memoryManager.incrementMessageCount(guildId, userId);
     }
     const executeMemoryExtraction = () => {
@@ -192,15 +192,17 @@ export default {
         incomingText = `${relationshipContext}\n${incomingText}`;
       }
 
-      // Capa 2: Memorias vectoriales (solo si son relevantes al tema)
-      try {
-        const relevantMemories = await memoryManager.getRelevantMemories(guildId, userId, message.content);
-        const memoryContext = memoryManager.buildMemoryContext(relevantMemories);
-        if (memoryContext) {
-          incomingText = `${memoryContext}\n${incomingText}`;
+      // Capa 2: Memorias vectoriales (solo si son relevantes al tema y NO estamos en modo Ollama estricto)
+      if (!CONFIG.OLLAMA_ONLY) {
+        try {
+          const relevantMemories = await memoryManager.getRelevantMemories(guildId, userId, message.content);
+          const memoryContext = memoryManager.buildMemoryContext(relevantMemories);
+          if (memoryContext) {
+            incomingText = `${memoryContext}\n${incomingText}`;
+          }
+        } catch (e) {
+          // Si falla el embedding, no pasa nada. Layla responde sin memorias.
         }
-      } catch (e) {
-        // Si falla el embedding, no pasa nada. Layla responde sin memorias.
       }
 
       // El flujo ahora siempre pasará por el sistema de sesiones (Live API)
