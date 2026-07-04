@@ -148,21 +148,23 @@ class MemoryManager {
    * Construye el texto de inyección de relación para el prompt.
    * Se inyecta SIEMPRE que ese usuario habla.
    * Combina relación global y de servidor si ambas existen.
+   * @param {string} authorName - Nombre de Discord del usuario que escribió el mensaje.
    */
-  buildRelationshipContext(guildId, userId) {
+  buildRelationshipContext(guildId, userId, authorName = null) {
     const globalRel = this.getGlobalRelationship(userId);
     const localRel = this.getRelationship(guildId, userId);
 
     if (!globalRel && !localRel) return '';
 
-    let context = '(Recuerda: Estás hablando con este usuario:';
+    const displayName = authorName || 'este usuario';
+    let context = `(CONTEXTO PRIVADO sobre "${displayName}" [ID: ${userId}] — EXCLUSIVO de esta persona, NO apliques estos apodos ni trato a NADIE más:`;
     if (globalRel) {
-      context += ` A nivel global es tu administrador Supremo: ${globalRel.name}. ${globalRel.relationship}.`;
+      context += ` Solo a "${displayName}" lo llamas "${globalRel.name}". ${globalRel.relationship}.`;
     }
     if (localRel) {
-      context += ` En este servidor le apodan ${localRel.name}. ${localRel.relationship}.`;
+      context += ` En este servidor a "${displayName}" le apodan "${localRel.name}". ${localRel.relationship}.`;
     }
-    context += ')';
+    context += ' Si otra persona escribe después, NO uses estos apodos con ella.)';
     
     return context;
   }

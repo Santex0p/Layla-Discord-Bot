@@ -753,7 +753,6 @@
         });
         if (res.ok) {
           showToast('RelaciÃ³n guardada');
-          document.getElementById('rel-name').value = '';
           document.getElementById('rel-description').value = '';
           loadRelationships(currentEditingGuild);
         }

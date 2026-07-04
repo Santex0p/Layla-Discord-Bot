@@ -43,12 +43,33 @@ export default {
     if (message.reference && message.reference.messageId) {
       try {
         const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
-        if (repliedMsg && repliedMsg.content) {
+        if (repliedMsg) {
           const repliedAuthor = repliedMsg.member?.displayName || repliedMsg.author.username;
-          if (repliedMsg.author.id !== message.client.user.id) {
-            cleanText = `[Respondiendo a ${repliedAuthor}: "${repliedMsg.content}"] ` + cleanText;
-          } else {
-            cleanText = `[Respondiéndote a ti: "${repliedMsg.content}"] ` + cleanText;
+          let refContent = repliedMsg.content || '';
+
+          // Procesar imágenes en el mensaje referenciado si no estamos en Ollama mode
+          if (repliedMsg.attachments.size > 0 && !CONFIG.OLLAMA_ONLY) {
+            for (const attachment of repliedMsg.attachments.values()) {
+              if (attachment.contentType && attachment.contentType.startsWith('image/')) {
+                const optimizedUrl = attachment.url + '?format=webp&width=800';
+                try {
+                  const description = await aiService.describeImage(optimizedUrl);
+                  refContent += ` [Imagen adjunta de ${repliedAuthor}: ${description}]`;
+                } catch (e) {
+                  refContent += ` [Imagen adjunta]`;
+                }
+              }
+            }
+          }
+
+          refContent = refContent.trim();
+
+          if (refContent) {
+            if (repliedMsg.author.id !== message.client.user.id) {
+              cleanText = `[Respondiendo a ${repliedAuthor}: "${refContent}"] ` + cleanText;
+            } else {
+              cleanText = `[Respondiéndote a ti: "${refContent}"] ` + cleanText;
+            }
           }
         }
       } catch (e) {
@@ -187,7 +208,7 @@ export default {
 
       // ==================== SISTEMA DE MEMORIA ====================
       // Capa 1: Relaciones (SIEMPRE se inyectan, prioridad alta)
-      const relationshipContext = memoryManager.buildRelationshipContext(guildId, userId);
+      const relationshipContext = memoryManager.buildRelationshipContext(guildId, userId, authorName);
       if (relationshipContext) {
         incomingText = `${relationshipContext}\n${incomingText}`;
       }

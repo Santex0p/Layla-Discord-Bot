@@ -1252,6 +1252,7 @@ body.hide-mobile-header .mobile-header {
   /* Server Settings View (Mobile) */
   .server-sticky-header {
     padding: 10px 14px !important;
+    top: 64px;
   }
   .server-header-icon {
     width: 30px !important;
