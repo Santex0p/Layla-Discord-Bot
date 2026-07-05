@@ -435,6 +435,7 @@ Si no encuentras nada relevante, responde: []`;
       config: {
         responseModalities: ['AUDIO'],
         systemInstruction: liveSystemInstruction,
+        outputAudioTranscription: {},
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {

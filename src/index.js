@@ -4,6 +4,7 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import readyEvent from './events/ready.js';
 import messageCreateEvent from './events/messageCreate.js';
 import interactionCreateEvent from './events/interactionCreate.js';
+import guildDeleteEvent from './events/guildDelete.js';
 import voiceChannelService from './services/VoiceChannelService.js';
 
 // Cliente de Discord: configuración de intents mínimos necesarios para chat
@@ -21,7 +22,7 @@ const client = new Client({
 setDiscordClient(client);
 
 // Registrar eventos
-const events = [readyEvent, messageCreateEvent, interactionCreateEvent];
+const events = [readyEvent, messageCreateEvent, interactionCreateEvent, guildDeleteEvent];
 
 for (const event of events) {
   if (event.once) {

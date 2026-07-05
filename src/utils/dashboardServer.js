@@ -379,12 +379,15 @@ const server = http.createServer(async (req, res) => {
   // --- HELPER DE AUTORIZACIÓN ---
   async function hasServerAccess(user, guildId) {
     if (!user) return false;
-    if (user.id === process.env.SUPERADMIN_ID) return true; // Superadmin tiene acceso a todo
     if (!discordClient) return false;
     
     try {
-      const guild = await discordClient.guilds.fetch(guildId);
-      if (!guild) return false;
+      // Usar cache para verificar rápidamente si el bot está en el servidor
+      const guild = discordClient.guilds.cache.get(guildId);
+      if (!guild) return false; // El bot ya no está en este servidor
+
+      if (user.id === process.env.SUPERADMIN_ID) return true; // Superadmin tiene acceso a todo
+
       const member = await guild.members.fetch(user.id);
       if (!member) return false;
       // Verificar si tiene permiso de administrador en ese servidor

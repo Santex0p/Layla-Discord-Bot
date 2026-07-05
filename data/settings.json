@@ -1,3 +1,6 @@
 {
-  "RESPOND_ON_MENTION": true
+  "RESPOND_ON_MENTION": true,
+  "BOT_FRIENDS": [
+    "1468369399705763974"
+  ]
 }

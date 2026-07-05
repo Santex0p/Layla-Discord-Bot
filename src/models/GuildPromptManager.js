@@ -68,6 +68,30 @@ class GuildPromptManager {
     }
   }
 
+  removeGuild(guildId) {
+    if (!guildId) return;
+    if (this.prompts.has(guildId)) {
+      const info = this.prompts.get(guildId);
+      this.prompts.delete(guildId);
+      this._savePrompts();
+      console.log(`[GuildPromptManager] Servidor eliminado de la base de datos: ${info.serverName || 'Desconocido'} (${guildId}).`);
+    }
+  }
+
+  cleanupOrphanedGuilds(activeGuildIds) {
+    let changed = false;
+    for (const guildId of this.prompts.keys()) {
+      if (!activeGuildIds.includes(guildId)) {
+        this.prompts.delete(guildId);
+        changed = true;
+        console.log(`[GuildPromptManager] Limpieza: Servidor fantasma eliminado (${guildId}).`);
+      }
+    }
+    if (changed) {
+      this._savePrompts();
+    }
+  }
+
   getPrompt(guildId) {
     let promptText = CONFIG.LIVE_SYSTEM_INSTRUCTION;
     let lang = CONFIG.DEFAULT_LANG;

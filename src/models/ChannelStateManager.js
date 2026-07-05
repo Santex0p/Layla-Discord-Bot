@@ -17,6 +17,7 @@ class ChannelStateManager {
     this.channelToGuild = new Map(); // key: channelId -> guildId
     this.activeChannelIds = new Set();
     this.liveDisabledReason = null;
+    this.botFriendReplies = new Map(); // key: `${channelId}:${botId}` -> count
 
     this._loadAutoTalk();
   }
@@ -52,6 +53,21 @@ class ChannelStateManager {
 
   isChannelActive(channelId) {
     return this.activeChannelIds.has(channelId);
+  }
+
+  // --- BOT FRIENDS LOOP PREVENTION ---
+  getBotFriendReplies(channelId, botId) {
+    return this.botFriendReplies.get(`${channelId}:${botId}`) || 0;
+  }
+
+  incrementBotFriendReplies(channelId, botId) {
+    const key = `${channelId}:${botId}`;
+    const current = this.botFriendReplies.get(key) || 0;
+    this.botFriendReplies.set(key, current + 1);
+  }
+
+  resetBotFriendReplies(channelId, botId) {
+    this.botFriendReplies.delete(`${channelId}:${botId}`);
   }
 
   activateChannel(channelId, guildId) {
@@ -209,7 +225,11 @@ class ChannelStateManager {
     const pendingTurn = state.pendingTurn;
     state.pendingTurn = null;
 
-    const transcript = pendingTurn.transcriptChunks.join(' ').trim() || pendingTurn.textChunks.join(' ').trim();
+    // Usar transcriptChunks (outputTranscription de Google) como fuente primaria.
+    // Esto es la transcripción automática de lo que el modelo REALMENTE pronunció en el audio,
+    // no sus pensamientos internos. Es 100% limpio y en el idioma que habló.
+    const transcript = pendingTurn.transcriptChunks.join(' ').trim()
+                    || pendingTurn.textChunks.join(' ').trim();
     const audioBuffer = Buffer.concat(pendingTurn.audioChunks);
 
     if (audioBuffer.length === 0) {

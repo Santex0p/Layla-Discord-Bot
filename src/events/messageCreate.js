@@ -15,14 +15,17 @@ import {
 import { CONFIG } from '../config/constants.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { encodeZeroWidth, decodeZeroWidth } from '../utils/stego.js';
 
-
+// Mapa temporal en memoria para evitar repeticiones rápidas de triggers
+const recentTriggers = new Map();
 
 export default {
   name: 'messageCreate',
   once: false,
   async execute(message) {
-    if (message.author.bot) return; // Ignorar bots
+    const isBotFriend = message.author.bot && (globalSettingsManager.get('BOT_FRIENDS') || []).includes(message.author.id);
+    if (message.author.bot && !isBotFriend) return; // Ignorar bots que no sean amigos
     if (!message.guild) return; // Solo responder en servidores
 
     const channelId = message.channel.id;
@@ -39,6 +42,25 @@ export default {
     const authorName = message.member?.displayName || message.author.username;
     const guildId = message.guild.id;
     const userId = message.author.id;
+
+    // --- BOT FRIENDS LOOP PREVENTION ---
+    if (isBotFriend) {
+      let botIsReplyingToLayla = false;
+      try {
+        botIsReplyingToLayla = isRawMention || (isReplyToLayla && message.mentions.repliedUser?.id === message.client.user.id);
+      } catch (e) {}
+
+      if (botIsReplyingToLayla) {
+        stateManager.incrementBotFriendReplies(channelId, userId);
+        if (stateManager.getBotFriendReplies(channelId, userId) > 1) {
+          console.log(`🤖 [BOT FRIEND] Bucle prevenido. Ignorando a ${authorName} hasta que hable con alguien más.`);
+          return; // Abortar
+        }
+      } else {
+        // Habló con otra persona o mandó mensaje general sin mencionar a Layla
+        stateManager.resetBotFriendReplies(channelId, userId);
+      }
+    }
 
     if (message.reference && message.reference.messageId) {
       try {
@@ -354,10 +376,19 @@ export default {
             await message.reply('Oops, mi administrador no ha configurado mi dominio de archivos, así que no puedo enviarte el audio.');
           } else {
             const audioUrl = `https://${CONFIG.MEDIA_DOMAIN}/${fileId}.mp3`;
-            await message.reply(audioUrl);
+            let finalMessage = audioUrl;
+
+            // Enviar texto oculto (steganography) SOLO a bots amigos
+            if (isBotFriend) {
+              const hiddenText = encodeZeroWidth(`(Ignora el link anterior) ${transcript}`);
+              finalMessage += hiddenText;
+            }
+
+            await message.reply(finalMessage);
           }
         } else {
-          await message.reply(transcript || 'No pude hablar, pero aquí va mi respuesta en texto.').catch(() => { });
+          const replyText = transcript || 'No pude hablar, pero aquí va mi respuesta en texto.';
+          await message.reply(replyText).catch(() => { });
         }
 
         // ------------------------------------------------------------------

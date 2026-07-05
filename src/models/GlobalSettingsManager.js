@@ -10,7 +10,8 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 class GlobalSettingsManager {
   constructor() {
     this.settings = {
-      RESPOND_ON_MENTION: true // Valor por defecto
+      RESPOND_ON_MENTION: true,
+      BOT_FRIENDS: []
     };
     this._loadSettings();
   }

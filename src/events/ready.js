@@ -15,10 +15,15 @@ export default {
     }
 
     // Registrar/actualizar información de todos los servidores en los que está el bot
+    const currentGuildIds = [];
     client.guilds.cache.forEach(guild => {
+      currentGuildIds.push(guild.id);
       const iconUrl = guild.iconURL({ dynamic: true, size: 128 });
       guildPromptManager.ensureGuildRegistered(guild.id, guild.name, iconUrl);
     });
+
+    // Limpiar servidores de los que el bot fue expulsado mientras estaba apagado
+    guildPromptManager.cleanupOrphanedGuilds(currentGuildIds);
 
     // Establecer estado (Custom Status)
     client.user.setActivity({

@@ -178,10 +178,10 @@
             return;
           }
 
-          // Ocultar tabs globales si no es superadmin
           if (!isSuperAdmin) {
             document.querySelector('.nav-item[data-target="view-settings"]')?.remove();
             document.querySelector('.nav-item[data-target="view-global-relationships"]')?.remove();
+            document.querySelector('.nav-item[data-target="view-bot-friends"]')?.remove();
             document.querySelector('.nav-item[data-target="view-console"]')?.remove();
           }
 
@@ -299,6 +299,10 @@
         const data = await res.json();
         if (data.RESPOND_ON_MENTION !== undefined) {
           document.getElementById('toggle-mention').checked = data.RESPOND_ON_MENTION;
+        }
+        if (data.BOT_FRIENDS) {
+          globalBotFriends = data.BOT_FRIENDS;
+          renderBotFriends();
         }
       } catch (e) {
         console.error("Error cargando ajustes:", e);
@@ -1625,4 +1629,67 @@ window.sendTestChatMessage = async function() {
     document.getElementById('test-chat-send-btn').disabled = false;
   }
   chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+// --- AMIGOS BOTS ---
+let globalBotFriends = [];
+
+function renderBotFriends() {
+  const list = document.getElementById('bot-friends-list');
+  if (!list) return;
+  list.innerHTML = '';
+  
+  if (globalBotFriends.length === 0) {
+    list.innerHTML = '<p style="color: var(--text-muted);">No hay bots amigos registrados.</p>';
+    return;
+  }
+
+  globalBotFriends.forEach(botId => {
+    const item = document.createElement('div');
+    item.style = 'display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(0,0,0,0.2); border-radius: var(--radius-md); border: 1px solid rgba(255,255,255,0.05);';
+    item.innerHTML = `
+      <div>
+        <span style="font-weight: 600; color: white;">ID: ${botId}</span>
+      </div>
+      <button class="btn btn-danger" style="padding: 4px 10px; font-size: 0.8rem;" onclick="removeBotFriend('${botId}')">Eliminar</button>
+    `;
+    list.appendChild(item);
+  });
+}
+
+async function addBotFriend() {
+  const idInput = document.getElementById('bot-friend-id');
+  const botId = idInput.value.trim();
+  if (!botId) return;
+
+  if (globalBotFriends.includes(botId)) {
+    customAlert('Atención', 'Ese bot ya está en la lista.');
+    return;
+  }
+
+  const updatedList = [...globalBotFriends, botId];
+  await saveBotFriends(updatedList);
+  idInput.value = '';
+}
+
+async function removeBotFriend(botId) {
+  const updatedList = globalBotFriends.filter(id => id !== botId);
+  await saveBotFriends(updatedList);
+}
+
+async function saveBotFriends(newList) {
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ BOT_FRIENDS: newList })
+    });
+    if (res.ok) {
+      globalBotFriends = newList;
+      renderBotFriends();
+      showToast('Lista de Bots actualizada');
+    }
+  } catch (e) {
+    customAlert('Error', 'No se pudo guardar la lista de bots.');
+  }
 };
