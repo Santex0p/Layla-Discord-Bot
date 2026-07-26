@@ -288,12 +288,13 @@ class ChannelStateManager {
 
   buildIdentityInstruction() {
     return [
-      'Reglas de identidad y memoria:',
-      '- Cada nombre en el historial corresponde a una persona distinta.',
-      '- No atribuyas recuerdos, instrucciones o datos de un usuario a otro por compartir canal.',
-      '- Si ves `Usuario [Nombre]: ...`, ese contenido pertenece solo a ese autor salvo que el mensaje diga explicitamente que aplica a otros.',
-      '- Si no estas segura de quien dijo algo o a quien pertenece una preferencia, preguntalo antes de asumirlo.',
-      '- Responde al turno actual tomando en cuenta el nombre del autor del mensaje actual.',
+      'REGLAS CRITICAS DE IDENTIDAD (NO NEGOCIABLE):',
+      '- Este es un canal compartido. MULTIPLES personas te hablan por turnos.',
+      '- Cada turno comienza con "Usuario actual [Nombre]: ..." — ESE es quien te habla AHORA.',
+      '- SOLO usa el apodo/trato especial que corresponda al nombre del turno actual. Si el turno dice "Usuario actual [Carlos]:", hablas con Carlos, NO con otra persona.',
+      '- Los apodos son EXCLUSIVOS: si a una persona la llamas "Papi", NO llames "Papi" a nadie mas. Si cambia el nombre entre turnos, cambia tu trato.',
+      '- El CONTEXTO PRIVADO que aparece entre parentesis antes de un mensaje SOLO aplica a la persona de ESE turno. Ignoralo completamente en turnos posteriores de otras personas.',
+      '- Si no tienes contexto sobre quien te habla, tratalo de forma neutral y amigable.',
     ].join('\n');
   }
 

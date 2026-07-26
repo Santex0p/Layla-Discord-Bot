@@ -48,7 +48,7 @@ export default {
       let botIsReplyingToLayla = false;
       try {
         botIsReplyingToLayla = isRawMention || (isReplyToLayla && message.mentions.repliedUser?.id === message.client.user.id);
-      } catch (e) {}
+      } catch (e) { }
 
       if (botIsReplyingToLayla) {
         stateManager.incrementBotFriendReplies(channelId, userId);
@@ -70,7 +70,14 @@ export default {
           let refContent = repliedMsg.content || '';
 
           // Procesar imágenes en el mensaje referenciado si no estamos en Ollama mode
-          if (repliedMsg.attachments.size > 0 && !CONFIG.OLLAMA_ONLY) {
+          // y SOLO si el canal está activo, o si se está interactuando directamente con Layla
+          const isChannelActive = stateManager.isChannelActive(channelId);
+          let interactsWithLayla = isRawMention;
+          try {
+            if (isReplyToLayla && message.mentions.repliedUser?.id === message.client.user.id) interactsWithLayla = true;
+          } catch (e) { }
+
+          if (repliedMsg.attachments.size > 0 && !CONFIG.OLLAMA_ONLY && (isChannelActive || interactsWithLayla)) {
             for (const attachment of repliedMsg.attachments.values()) {
               if (attachment.contentType && attachment.contentType.startsWith('image/')) {
                 const optimizedUrl = attachment.url + '?format=webp&width=800';
@@ -113,7 +120,7 @@ export default {
       const historyContents = stateManager.buildExtractionHistory(channelId, userId);
       if (historyContents.length > 0) {
         const historyBlock = historyContents.join('\n');
-        
+
         // Construir lista de relaciones protegidas para blindar la extracción
         const allRels = memoryManager.getAllRelationships(guildId);
         const protectedRelationships = Object.entries(allRels)
