@@ -21,6 +21,15 @@ const client = new Client({
 // Pasar el cliente al servidor web para que pueda expulsar al bot si se pide
 setDiscordClient(client);
 
+// Inicializar MusicService (Lavalink)
+import musicService from './services/MusicService.js';
+client.on('ready', () => {
+  musicService.init(client);
+});
+client.on('raw', (d) => {
+  if (musicService.manager) musicService.manager.sendRawData(d);
+});
+
 // Registrar eventos
 const events = [readyEvent, messageCreateEvent, interactionCreateEvent, guildDeleteEvent];
 

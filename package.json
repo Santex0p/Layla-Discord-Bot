@@ -18,7 +18,9 @@
     "@snazzah/davey": "latest",
     "@google/genai": "latest",
     "ffmpeg-static": "^5.2.0",
-    "vosk-koffi": "^1.1.1"
+    "vosk-koffi": "^1.1.1",
+    "lavalink-client": "^2.10.1",
+    "picocolors": "^1.1.1"
   },
   "scripts": {
     "start": "node src/index.js",

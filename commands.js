@@ -71,7 +71,65 @@ const SEARCH_COMMAND = {
   ]
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, WACK_COMMAND, TALK_COMMAND, NOTALK_COMMAND, CALL_COMMAND, ENDCALL_COMMAND, SEARCH_COMMAND];
+const PLAY_COMMAND = {
+  name: 'play',
+  description: 'Layla pone música para ti (Lavalink)',
+  type: 1,
+  integration_types: [0],
+  contexts: [0],
+  options: [
+    {
+      type: 3, // STRING
+      name: 'cancion',
+      description: 'Nombre o URL de la canción',
+      required: true
+    }
+  ]
+};
+
+const STOP_COMMAND = {
+  name: 'stop',
+  description: 'Layla detiene la música',
+  type: 1,
+  integration_types: [0],
+  contexts: [0],
+};
+
+const SKIP_COMMAND = {
+  name: 'skip',
+  description: 'Layla salta a la siguiente canción',
+  type: 1,
+  integration_types: [0],
+  contexts: [0],
+};
+
+const AUTOPLAY_COMMAND = {
+  name: 'autoplay',
+  description: 'Layla buscará música recomendada automáticamente cuando se acabe la cola',
+  type: 1,
+  integration_types: [0],
+  contexts: [0],
+};
+
+const VOLUME_COMMAND = {
+  name: 'volume',
+  description: 'Ajusta el volumen de Layla (0-200)',
+  type: 1,
+  integration_types: [0],
+  contexts: [0],
+  options: [
+    {
+      type: 4, // INTEGER
+      name: 'nivel',
+      description: 'Nivel de volumen (0 a 200)',
+      required: true,
+      min_value: 0,
+      max_value: 200
+    }
+  ]
+};
+
+const ALL_COMMANDS = [TEST_COMMAND, WACK_COMMAND, TALK_COMMAND, NOTALK_COMMAND, CALL_COMMAND, ENDCALL_COMMAND, SEARCH_COMMAND, PLAY_COMMAND, STOP_COMMAND, SKIP_COMMAND, AUTOPLAY_COMMAND, VOLUME_COMMAND];
 
 console.log('[COMMANDS] Registrando comandos para APP_ID:', process.env.APP_ID || 'no definido');
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);

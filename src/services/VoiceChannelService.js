@@ -36,6 +36,14 @@ class VoiceChannelService {
       });
     }
 
+    const { default: musicService } = await import('./MusicService.js');
+    if (musicService.isMusicPlaying(interaction.guildId)) {
+      return interaction.reply({
+        content: 'Estoy escuchando música ahora mismo (Modo DJ). Usa `/stop` si quieres que vuelva a hablar por voz.',
+        ephemeral: true
+      });
+    }
+
     const connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: voiceChannel.guild.id,
