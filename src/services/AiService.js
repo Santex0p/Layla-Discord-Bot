@@ -300,59 +300,107 @@ Si no encuentras nada relevante, responde: []`;
     }
   }
 
-  handleLiveMessage(channelId, message) {
+  async handleLiveMessage(channelId, message) {
     const state = stateManager.getLiveChannelState(channelId);
     const isVoice = state.voiceMode;
     const voiceSession = isVoice ? voiceChannelService.players.get(channelId) : null;
 
-    if (message.usageMetadata && state.pendingTurn) {
-      state.pendingTurn.usageMetadata = message.usageMetadata;
+    if (message.clientContent) {
+      // Ignoramos el echo de lo que nosotros enviamos
+      return;
     }
 
-    const serverContent = message.serverContent;
-    if (!serverContent) return;
+    let serverContent = message.serverContent;
+    let toolCall = message.toolCall || serverContent?.toolCall;
 
-    if (serverContent.outputTranscription?.text && state.pendingTurn) {
-      state.pendingTurn.transcriptChunks.push(serverContent.outputTranscription.text.trim());
-    }
+    if (!serverContent && !toolCall) return;
 
-    const parts = serverContent.modelTurn?.parts || [];
-    const text = extractTextFromParts(parts);
-
-    if (text && state.pendingTurn) {
-      state.pendingTurn.textChunks.push(text);
-    }
-
-    for (const part of parts) {
-      if (!part?.inlineData?.mimeType?.startsWith('audio/')) continue;
-      const audioChunk = extractInlineAudioData(part);
-      if (!audioChunk) continue;
-
-      if (isVoice && voiceSession) {
-        // En este modo (pure audio prompt), reproducimos el audio inmediatamente
-        // y confiamos en el prompt del sistema.
-        voiceChannelService.playAudioChunk(channelId, audioChunk);
-        voiceChannelService.setListeningState(channelId, 'responding');
-      } else {
-        // Chat normal (no voz)
-        voiceChannelService.playAudioChunk(channelId, audioChunk);
+    if (serverContent) {
+      if (serverContent.outputTranscription?.text && state.pendingTurn) {
+        state.pendingTurn.transcriptChunks.push(serverContent.outputTranscription.text.trim());
       }
 
-      if (state.pendingTurn) {
-        state.pendingTurn.audioChunks.push(audioChunk);
-        if (!state.pendingTurn.mimeType) {
-          state.pendingTurn.mimeType = part.inlineData.mimeType;
+      const parts = serverContent.modelTurn?.parts || [];
+      const text = extractTextFromParts(parts);
+
+      if (text && state.pendingTurn) {
+        state.pendingTurn.textChunks.push(text);
+      }
+
+      for (const part of parts) {
+        if (!part?.inlineData?.mimeType?.startsWith('audio/')) continue;
+        const audioChunk = extractInlineAudioData(part);
+        if (!audioChunk) continue;
+
+        if (isVoice && voiceSession) {
+          voiceChannelService.playAudioChunk(channelId, audioChunk);
+          voiceChannelService.setListeningState(channelId, 'responding');
+        } else {
+          voiceChannelService.playAudioChunk(channelId, audioChunk);
+        }
+
+        if (state.pendingTurn) {
+          state.pendingTurn.audioChunks.push(audioChunk);
+          if (!state.pendingTurn.mimeType) {
+            state.pendingTurn.mimeType = part.inlineData.mimeType;
+          }
         }
       }
     }
 
-    if (serverContent.interrupted) {
+    if (toolCall) {
+      console.log(`[LIVE] Tool call detectado:`, JSON.stringify(toolCall));
+      const call = toolCall.functionCalls[0];
+      if (call && call.name === 'activarModoDJ') {
+        const query = call.args ? call.args.query : null;
+        console.log(`[LIVE] Activando Modo DJ con query: "${query}". Esperando confirmación de voz...`);
+        
+        state.pendingDJTransition = query || ''; // Guardar el query para usarlo después de hablar
+        
+        try {
+          state.session.sendToolResponse({
+            functionResponses: [{
+              id: call.id,
+              name: call.name,
+              response: { result: "ÉXITO. Confirma de forma breve y emocionante que vas a poner su música, y despídete (ej: '¡Claro, aquí tienes, a disfrutar!'). Al terminar de hablar, te apagarás." }
+            }]
+          });
+        } catch (e) {
+          console.error('[LIVE] Error enviando toolResponse:', e.message);
+        }
+        return; 
+      }
+    }
+
+    if (serverContent?.turnComplete) {
+      // Si hay una transición a DJ Mode pendiente, este es el momento de procesarla
+      if (state.pendingDJTransition !== undefined) {
+        const query = state.pendingDJTransition;
+        state.pendingDJTransition = undefined; // Limpiar
+
+        if (isVoice && voiceSession && (voiceSession.listeningState === 'responding' || voiceSession.isPlaying)) {
+          // Si está hablando, pasamos el query a la sesión de voz para que transicione al terminar el audio (evento Idle)
+          console.log(`[LIVE] Layla está hablando. Transición a DJ Mode encolada para cuando termine de hablar.`);
+          voiceSession.djTransitionQuery = query;
+        } else {
+          // Si no está hablando (por ej. si Gemini solo envió texto sin audio), transicionamos inmediatamente
+          console.log(`[LIVE] Layla no está hablando. Transicionando a DJ Mode inmediatamente.`);
+          try {
+            await voiceChannelService.switchToDJMode(channelId, query);
+          } catch (e) {
+            console.error('[LIVE] Error al cambiar a Modo DJ:', e.message);
+          }
+        }
+      }
+    }
+
+    if (serverContent?.interrupted) {
+      console.log(`[LIVE] Gemini reporta interrupción.`);
       // SOLO honrar la interrupción si Layla está ESCUCHANDO.
       // Si está en 'responding' (sorda), ignorar — es audio viejo en el buffer de Gemini.
       if (isVoice && voiceSession && voiceSession.listeningState === 'responding') {
         console.log(`🛡️ [VOICE] Interrupción de Gemini IGNORADA — Layla está hablando (sorda).`);
-        // Gemini no enviará turnComplete tras interrupted, así que transitamos a 'cooldown'
-        // para que cuando el reproductor termine el audio buffereado, el evento Idle abra sus oídos.
+        voiceChannelService.finishSpeaking(channelId);
         voiceChannelService.setListeningState(channelId, 'cooldown');
         return;
       }
@@ -367,7 +415,7 @@ Si no encuentras nada relevante, responde: []`;
       return;
     }
 
-    if (serverContent.turnComplete) {
+    if (serverContent?.turnComplete) {
       if (state.pendingTurn) {
         stateManager.finalizePendingLiveTurn(channelId);
       }
@@ -375,6 +423,7 @@ Si no encuentras nada relevante, responde: []`;
       if (isVoice && voiceSession) {
         if (voiceSession.listeningState === 'responding') {
           console.log(`💬 [LAYLA] Turno completado tras haber hablado.`);
+          voiceChannelService.finishSpeaking(channelId);
           voiceChannelService.setListeningState(channelId, 'cooldown');
         } else {
           console.log(`🤫 [LAYLA] Gemini guardó silencio.`);
@@ -414,6 +463,98 @@ Si no encuentras nada relevante, responde: []`;
     }
   }
 
+  /**
+   * Genera un anuncio de DJ con voz de Layla para el próximo bloque de canciones.
+   * Devuelve un Buffer PCM (24kHz mono 16-bit) listo para reproducir en Discord.
+   * @param {object[]} tracks - Array de objetos track de lavalink-client
+   * @param {string} guildId - ID del servidor para obtener el prompt base
+   * @returns {Promise<Buffer|null>}
+   */
+  async generateDJAnnouncement(tracks, guildId) {
+    try {
+      const trackList = tracks.slice(0, 5).map((t, i) => `${i + 1}. "${t.info.title}" de ${t.info.author}`).join(', ');
+      const basePrompt = guildPromptManager.getPrompt(guildId);
+
+      // Prompt completo: personalidad del servidor + instrucción DJ
+      const djSystemPrompt = `${basePrompt}\n\nAdemás, ahora eres la DJ del servidor. Vas a presentar las próximas canciones de forma dinámica y fluida (de 2 a 3 oraciones), como un buen locutor de radio pero con tu toque personal. Sé natural, coqueta y auténtica.`;
+
+      const djTextPrompt = `Presenta las siguientes canciones que vienen a continuación: ${trackList}`;
+
+      console.log(`[DJ-ANNOUNCE] Generando audio via Live API (mismo modelo de voz)...`);
+
+      // Usar el Live API (WebSockets) — mismo modelo que el chat de voz
+      // Soporta systemInstruction y tiene cuota separada del TEXT_MODEL
+      const audioChunks = [];
+      let resolveAudio, rejectAudio;
+      const audioPromise = new Promise((res, rej) => { resolveAudio = res; rejectAudio = rej; });
+
+      const session = await this.ai.live.connect({
+        model: CONFIG.LIVE_MODEL,
+        config: {
+          responseModalities: ['AUDIO'],
+          systemInstruction: djSystemPrompt,
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: CONFIG.TTS_VOICE }
+            }
+          }
+        },
+        callbacks: {
+          onopen: () => console.log('[DJ-ANNOUNCE] Live API conectada.'),
+          onmessage: (msg) => {
+            // Extraer el audio manualmente de las partes para evitar usar msg.data,
+            // el cual dispara warnings molestos de la SDK sobre partes 'text' o 'thought'
+            const parts = msg.serverContent?.modelTurn?.parts || [];
+            for (const part of parts) {
+              if (part.inlineData && part.inlineData.mimeType?.startsWith('audio/')) {
+                audioChunks.push(Buffer.from(part.inlineData.data, 'base64'));
+              }
+            }
+            // Cuando el servidor indica que terminó su turno
+            if (msg.serverContent?.turnComplete) {
+              console.log(`[DJ-ANNOUNCE] Audio completo. ${audioChunks.length} chunks recibidos.`);
+              resolveAudio();
+            }
+          },
+          onerror: (err) => {
+            console.error('[DJ-ANNOUNCE] Error en Live API:', err.message || err);
+            rejectAudio(err);
+          },
+          onclose: () => {
+            // Si se cierra antes de turnComplete, resolver con lo que haya
+            resolveAudio();
+          }
+        }
+      });
+
+      // Enviar el texto para que lo presente con su voz
+      session.sendClientContent({
+        turns: [{ role: 'user', parts: [{ text: djTextPrompt }] }],
+        turnComplete: true
+      });
+
+      // Esperar a que termine de hablar (máximo 30s)
+      const timeout = setTimeout(() => resolveAudio(), 30_000);
+      await audioPromise;
+      clearTimeout(timeout);
+
+      // Cerrar la sesión temporal
+      try { session.close(); } catch (_) {}
+
+      if (audioChunks.length === 0) {
+        console.warn('[DJ-ANNOUNCE] No se recibió audio del Live API.');
+        return null;
+      }
+
+      const fullBuffer = Buffer.concat(audioChunks);
+      console.log(`[DJ-ANNOUNCE] Audio total: ${fullBuffer.length} bytes (PCM 24kHz mono)`);
+      return { buffer: fullBuffer, mimeType: 'audio/pcm' };
+    } catch (err) {
+      console.error('[DJ-ANNOUNCE] Error generando anuncio:', err.message);
+      return null;
+    }
+  }
+
   async ensureLiveSession(channelId, userId, guildId = null) {
     const state = stateManager.getLiveChannelState(channelId);
 
@@ -443,6 +584,22 @@ Si no encuentras nada relevante, responde: []`;
             },
           },
         },
+        tools: [{
+          functionDeclarations: [{
+            name: "activarModoDJ",
+            description: "Activa el modo reproductor de música. Usa tu conocimiento musical para corregir nombres mal pronunciados (ej. si escuchas 'lmp diskit', asume 'Limp Bizkit'). PERO si el nombre es muy ambiguo y podría referirse a varios artistas distintos, NO USES ESTA HERRAMIENTA. En su lugar, háblale y pregúntale (ej: '¿Quisiste decir Limp Bizkit o Linkin Park?'). Si solo dice 'pon música', también debes preguntarle qué quiere escuchar.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                query: {
+                  type: "STRING",
+                  description: "La canción o artista a buscar. Si el usuario lo pronunció mal pero es obvio a qué artista se refiere, escribe el nombre corregido correctamente. No inventes géneros si no los pidió."
+                }
+              },
+              required: ["query"]
+            }
+          }]
+        }],
         ...(state.handle ? { sessionResumption: { handle: state.handle } } : {}),
       },
       callbacks: {

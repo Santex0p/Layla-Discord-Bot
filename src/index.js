@@ -23,7 +23,7 @@ setDiscordClient(client);
 
 // Inicializar MusicService (Lavalink)
 import musicService from './services/MusicService.js';
-client.on('ready', () => {
+client.once('clientReady', () => {
   musicService.init(client);
 });
 client.on('raw', (d) => {

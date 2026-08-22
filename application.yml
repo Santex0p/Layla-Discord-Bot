@@ -36,8 +36,8 @@ plugins:
 
 lavalink:
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
-      snapshot: false
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+      repository: "https://maven.lavalink.dev/releases"
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.1"
       repository: "https://maven.lavalink.dev/releases"
       snapshot: false
@@ -49,8 +49,8 @@ lavalink:
       bandcamp: true
       twitch: true
       vimeo: true
-      http: false
-      local: false
+      http: true
+      local: true
     bufferDurationMs: 200
     frameBufferDurationMs: 1000
     youtubePlaylistLoadLimit: 3

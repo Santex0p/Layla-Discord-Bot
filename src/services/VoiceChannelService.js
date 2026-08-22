@@ -76,6 +76,7 @@ class VoiceChannelService {
       player,
       connection,
       guildId: voiceChannel.guild.id,
+      textChannelId: interaction.channelId,
       isPlaying: false,
       upsampleLeftover: Buffer.alloc(0),
       audioStream: null,
@@ -107,6 +108,16 @@ class VoiceChannelService {
         sessionData.audioStream.destroy();
         sessionData.audioStream = null;
       }
+
+      // Si había una transición pendiente a DJ Mode, ejecutarla ahora que terminó de hablar.
+      if (sessionData.djTransitionQuery !== undefined) {
+        console.log(`[DJ-MODE] Layla terminó de hablar. Ejecutando transición a música ahora...`);
+        const query = sessionData.djTransitionQuery;
+        sessionData.djTransitionQuery = undefined;
+        this.switchToDJMode(voiceChannel.id, query);
+        return; // No reabrir el micrófono
+      }
+
       // Cuando termina de hablar físicamente, abrir su micrófono si estaba pendiente (solo si el turno ya terminó = cooldown)
       if (sessionData.listeningState === 'cooldown') {
         this.setListeningState(voiceChannel.id, 'listening');
@@ -143,6 +154,15 @@ class VoiceChannelService {
         this._startListeningToUser(connection, memberId, voiceChannel.id);
       }
       console.log(`🎧 [VOICE] Escuchando a ${humanMembers.size} usuario(s) en el canal usando modelo de idioma: ${langName}.`);
+      
+      // FIX: Reproducir un frame de silencio para forzar la apertura del puerto UDP en Discord
+      // Esto evita que el usuario tenga que hablar dos veces la primera vez.
+      const { Readable } = await import('stream');
+      const silenceStream = new Readable({ read() {} });
+      silenceStream.push(Buffer.alloc(1920, 0));
+      silenceStream.push(null);
+      const silenceResource = createAudioResource(silenceStream, { inputType: StreamType.Raw });
+      player.play(silenceResource);
 
       await interaction.reply(`¡Me uní a la llamada! Digan **"Layla"** para hablar conmigo 🎤\n*(Idioma configurado: **${langName}**)*`);
     } catch (err) {
@@ -169,6 +189,120 @@ class VoiceChannelService {
       return interaction.reply('Desconectada de la llamada de voz.');
     } else {
       return interaction.reply({ content: 'No estoy en ningún canal de voz en este servidor.', ephemeral: true });
+    }
+  }
+
+  // ============================================================
+  //  switchToDJMode — Transición automática desde Gemini a Music
+  // ============================================================
+  async switchToDJMode(channelId, query = null) {
+    const sessionData = this.players.get(channelId);
+    if (!sessionData) {
+      console.error('[DJ-MODE] No hay sessionData para el canal', channelId);
+      return;
+    }
+
+    const guildId = sessionData.guildId;
+    const textChannelId = sessionData.textChannelId;
+    console.log(`[DJ-MODE] Iniciando transición. Guild: ${guildId}, Query: "${query}", TextChannel: ${textChannelId}`);
+
+    // 1. Cerrar sesión de voz Gemini y destruir la conexión
+    const connection = sessionData.connection;
+    this._cleanupSession(channelId);
+    stateManager.setVoiceMode(channelId, false);
+    if (connection) {
+      try { connection.destroy(); } catch (e) { console.error('[DJ-MODE] Error destruyendo conexión:', e.message); }
+    }
+    console.log(`[DJ-MODE] Sesión Gemini cerrada.`);
+
+    // 2. Pequeña pausa para que Discord libere el canal de voz
+    await new Promise(r => setTimeout(r, 500));
+
+    // 3. Crear player de Lavalink y reproducir (misma API que /play)
+    try {
+      const { default: musicService } = await import('./MusicService.js');
+      const client = musicService.client;
+      if (!client) {
+        console.error('[DJ-MODE] musicService.client no disponible.');
+        return;
+      }
+
+      // Usar createPlayer (misma firma que /play en interactionCreate.js)
+      const player = musicService.manager.createPlayer({
+        guildId: guildId,
+        voiceChannelId: channelId,
+        textChannelId: textChannelId,
+        selfDeaf: true,
+        selfMute: false,
+        volume: parseInt(process.env.DEFAULT_VOLUME) || 100,
+      });
+      await player.connect();
+      console.log(`[DJ-MODE] Player de Lavalink creado y conectado.`);
+
+      if (query) {
+        console.log(`[DJ-MODE] Buscando: "${query}"...`);
+        const res = await player.search({ query }, client.user);
+
+        if (res.loadType === 'error' || res.loadType === 'empty' || !res.tracks?.length) {
+          console.log(`[DJ-MODE] No se encontraron resultados para "${query}".`);
+          const guild = client.guilds.cache.get(guildId);
+          const textChannel = guild?.channels.cache.get(textChannelId);
+          if (textChannel) {
+            textChannel.send(`🎧 **Modo DJ activado** pero no encontré resultados para "${query}". Usa \`/play <canción>\` para buscar otra.`).catch(() => {});
+          }
+          return;
+        }
+
+        const firstTrack = res.tracks[0];
+        firstTrack.requester = {
+          id: client.user.id,
+          username: 'Layla (DJ)',
+          avatarURL: () => client.user.displayAvatarURL(),
+          displayAvatarURL: () => client.user.displayAvatarURL(),
+        };
+        
+        player.queue.add(firstTrack);
+        const addedTracks = [firstTrack];
+
+        // Buscar un mix basado en la primera canción para llenar el primer bloque de 10
+        if (firstTrack.info && (firstTrack.info.sourceName === 'youtube' || firstTrack.info.sourceName === 'youtubemusic')) {
+          try {
+            const videoId = firstTrack.info.identifier;
+            const mixUrl = `https://www.youtube.com/watch?v=${videoId}&list=RD${videoId}`;
+            const mixRes = await player.search({ query: mixUrl }, client.user);
+            
+            if (mixRes.tracks && mixRes.tracks.length > 0) {
+              const mixTracks = mixRes.tracks.filter(t => t.info.identifier !== videoId).slice(0, 9);
+              for (const nextTrack of mixTracks) {
+                nextTrack.requester = firstTrack.requester;
+                player.queue.add(nextTrack);
+                addedTracks.push(nextTrack);
+              }
+            }
+          } catch (e) {
+            console.error('[DJ-MODE] Error buscando mix inicial:', e);
+          }
+        }
+
+        musicService.autoplayStatus.set(guildId, true);
+        console.log(`[DJ-MODE] ✅ ${addedTracks.length} tracks añadidos (Mix inicial). Autoplay activado.`);
+
+        if (!player.playing && !player.paused) {
+          await player.play();
+          console.log(`[DJ-MODE] ▶ Reproduciendo primer bloque.`);
+          // Empezar a generar el anuncio para el SIGUIENTE bloque
+          musicService._preGenerateNextAnnouncement(player, addedTracks);
+        }
+      } else {
+        // Sin query: solo avisar
+        const guild = client.guilds.cache.get(guildId);
+        const textChannel = textChannelId ? guild?.channels.cache.get(textChannelId) : null;
+        if (textChannel) {
+          textChannel.send(`🎧 **Modo DJ activado.** Usa \`/play <canción>\` para empezar a escuchar música.`).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error('[DJ-MODE] Error al transicionar:', err);
     }
   }
 
@@ -429,6 +563,20 @@ class VoiceChannelService {
         this.setListeningState(channelId, 'listening');
       }
     }
+
+    // Cuando volvemos a 'listening', vaciar el buffer acumulado durante cooldown hacia Gemini
+    if (newState === 'listening' && sessionData.cooldownAudioBuffer?.length) {
+      console.log(`[VOICE] Enviando ${sessionData.cooldownAudioBuffer.length} bytes de audio buffereado durante cooldown.`);
+      const buffered = Buffer.concat(sessionData.cooldownAudioBuffer);
+      sessionData.cooldownAudioBuffer = [];
+      if (sessionData.session) {
+        try {
+          sessionData.session.sendRealtimeInput({
+            media: [{ mimeType: 'audio/pcm;rate=16000', data: buffered.toString('base64') }]
+          });
+        } catch (e) {}
+      }
+    }
   }
 
   // ============================================================
@@ -492,7 +640,16 @@ class VoiceChannelService {
           const outBuffer = Buffer.alloc((processable.length / 12) * 2);
           let outIndex = 0;
           for (let i = 0; i < processable.length; i += 12) {
-            outBuffer.writeInt16LE(processable.readInt16LE(i), outIndex);
+            // Promediar los 3 frames stereo (6 samples) como filtro anti-aliasing
+            // Esto elimina ruido fantasma que confundía a Gemini
+            const s1L = processable.readInt16LE(i);
+            const s1R = processable.readInt16LE(i + 2);
+            const s2L = processable.readInt16LE(i + 4);
+            const s2R = processable.readInt16LE(i + 6);
+            const s3L = processable.readInt16LE(i + 8);
+            const s3R = processable.readInt16LE(i + 10);
+            const avg = Math.round((s1L + s1R + s2L + s2R + s3L + s3R) / 6);
+            outBuffer.writeInt16LE(Math.max(-32768, Math.min(32767, avg)), outIndex);
             outIndex += 2;
           }
 
@@ -518,12 +675,12 @@ class VoiceChannelService {
 
         // Auto-restart si la sesión sigue activa
         if (this.players.has(channelId) && retryCount < 5) {
-          console.log(`[VOICE] Reiniciando listener para ${userId} en 2s (intento ${retryCount + 2}/6)...`);
+          console.log(`[VOICE] Reiniciando listener para ${userId} en 300ms (intento ${retryCount + 2}/6)...`);
           setTimeout(() => {
             if (this.players.has(channelId)) {
               this._startListeningToUser(connection, userId, channelId, retryCount + 1);
             }
-          }, 2000);
+          }, 300);
         } else if (retryCount >= 5) {
           console.error(`[VOICE] Se agotaron los reintentos para ${userId}.`);
         }
@@ -544,13 +701,29 @@ class VoiceChannelService {
 
     const frameSize = 3200; // 100ms a 16kHz mono 16bit
 
-    // Si NO estamos en modo escucha, drenar los buffers para que no se acumule audio viejo
+    // Si NO estamos en modo escucha:
+    // - En 'responding': descartar (Layla habla, no queremos eco).
+    // - En 'cooldown': guardar en buffer por si el usuario empieza a hablar justo al terminar Layla.
     if (sessionData.listeningState !== 'listening') {
+      const isCooldown = sessionData.listeningState === 'cooldown';
+      if (!sessionData.cooldownAudioBuffer) sessionData.cooldownAudioBuffer = [];
       for (const [userId, userData] of sessionData.userBuffers) {
-        userData.buffer = Buffer.alloc(0);
+        if (isCooldown && userData.buffer.length >= frameSize) {
+          // Solo guardar si hay audio real (no silencio del mixer)
+          sessionData.cooldownAudioBuffer.push(userData.buffer.subarray(0, frameSize));
+          userData.buffer = userData.buffer.subarray(frameSize);
+          // Limitar buffer a 2 segundos para no acumular demasiado
+          const maxBytes = 16000 * 2 * 2; // 2s a 16kHz mono 16bit
+          const total = sessionData.cooldownAudioBuffer.reduce((s, b) => s + b.length, 0);
+          if (total > maxBytes) sessionData.cooldownAudioBuffer.shift();
+        } else {
+          userData.buffer = Buffer.alloc(0);
+        }
       }
       return;
     }
+    // Resetear el buffer de cooldown al entrar en listening
+    sessionData.cooldownAudioBuffer = [];
 
     let anyoneActive = false;
     const mixedBuffer = Buffer.alloc(frameSize);
@@ -677,6 +850,22 @@ class VoiceChannelService {
 
     this.players.delete(channelId);
     console.log(`[VOICE] Recursos limpiados para canal ${channelId}.`);
+  }
+
+  // ============================================================
+  //  Terminar el turno de habla de Gemini
+  // ============================================================
+  finishSpeaking(channelId) {
+    const sessionData = this.players.get(channelId);
+    if (!sessionData) return;
+    if (sessionData.audioStream) {
+      // Escribir 5 frames de silencio (20ms c/u) para asegurar que el encoder Opus 
+      // no se quede colgado esperando bytes para completar el último frame.
+      try {
+        sessionData.audioStream.write(Buffer.alloc(1920 * 5, 0));
+        sessionData.audioStream.end();
+      } catch (e) {}
+    }
   }
 
   // ============================================================

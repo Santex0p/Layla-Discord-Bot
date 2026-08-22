@@ -18,6 +18,7 @@ services:
       - cloudflared-net
     volumes:
       - ./application.yml:/opt/Lavalink/application.yml:ro
+      - ./data:/app/data
     environment:
       - LAVALINK_PASSWORD=${LAVALINK_PASSWORD:-youshallnotpass}
       - SPOTIFY_ENABLED=${SPOTIFY_ENABLED:-false}

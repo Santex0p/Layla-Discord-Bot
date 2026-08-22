@@ -33,6 +33,8 @@ export default {
       const action = interaction.customId.replace('music_', '');
       
       try {
+        await interaction.deferUpdate().catch(() => {});
+        
         switch (action) {
           case 'playpause':
             if (player.paused) {
@@ -42,7 +44,13 @@ export default {
             }
             break;
           case 'skip':
-            await player.skip();
+            if (player.queue.tracks.length === 0) {
+              // Si no hay más canciones y le dan skip, detenemos la actual
+              // Esto forzará el evento trackEnd y luego queueEnd, disparando el Autoplay
+              player.stopPlaying();
+            } else {
+              await player.skip();
+            }
             break;
           case 'stop':
             await musicService.deletePlayerMenu(interaction.guildId);
@@ -55,9 +63,6 @@ export default {
             await player.setVolume(Math.min(200, player.volume + 10));
             break;
         }
-        
-        // El update del menú se hace sin responder a la interacción, pero Discord requiere defer o reply
-        await interaction.deferUpdate();
         
         if (action !== 'stop' && action !== 'skip') {
           await musicService.updatePlayerMenu(interaction.guildId);
@@ -201,21 +206,31 @@ export default {
 
       if (res.loadType === 'playlist') {
         const wasPlaying = player.playing || player.paused;
+        res.tracks.forEach(t => t.requester = interaction.user);
         player.queue.add(res.tracks);
         if (!wasPlaying) await player.play();
         
         if (wasPlaying) {
-          return interaction.editReply({ content: `🎶 Añadida playlist con ${res.tracks.length} canciones.` });
+          const { default: musicService } = await import('../services/MusicService.js');
+          musicService.updatePlayerMenu(interaction.guildId).catch(() => {});
+          await interaction.editReply({ content: `🎶 Añadida playlist con ${res.tracks.length} canciones.` });
+          setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+          return;
         } else {
           return interaction.deleteReply().catch(() => {});
         }
       } else {
         const wasPlaying = player.playing || player.paused;
+        res.tracks[0].requester = interaction.user;
         player.queue.add(res.tracks[0]);
         if (!wasPlaying) await player.play();
         
         if (wasPlaying) {
-          return interaction.editReply({ content: `🎶 Añadida a la cola: **${res.tracks[0].info.title}**` });
+          const { default: musicService } = await import('../services/MusicService.js');
+          musicService.updatePlayerMenu(interaction.guildId).catch(() => {});
+          await interaction.editReply({ content: `🎶 Añadida a la cola: **${res.tracks[0].info.title}**` });
+          setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+          return;
         } else {
           return interaction.deleteReply().catch(() => {});
         }
@@ -235,7 +250,11 @@ export default {
       const { default: musicService } = await import('../services/MusicService.js');
       const player = musicService.manager.getPlayer(interaction.guildId);
       if (!player) return interaction.reply({ content: 'No hay música sonando.', ephemeral: true });
-      await player.skip();
+      if (player.queue.tracks.length === 0) {
+        player.stopPlaying();
+      } else {
+        await player.skip();
+      }
       return interaction.reply({ content: 'Canción saltada.' });
     }
 
@@ -246,12 +265,49 @@ export default {
       const newState = !current;
       musicService.autoplayStatus.set(guildId, newState);
       
-      return interaction.reply({ 
+      await interaction.reply({ 
         content: newState 
-          ? '📻 **Autoplay Activado**: Buscararé canciones similares cuando se acabe la cola.' 
+          ? '📻 **Autoplay Activado**: Buscaré canciones similares cuando se acabe la cola.' 
           : '📻 **Autoplay Desactivado**: Me detendré cuando termine la cola.',
         ephemeral: false
       });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+
+      const player = musicService.manager.getPlayer(guildId);
+      if (newState && player && player.queue.tracks.length === 0) {
+        const track = player.queue.current || (player.queue.previous.length > 0 ? player.queue.previous[player.queue.previous.length - 1] : null);
+        if (track && track.info && (track.info.sourceName === 'youtube' || track.info.sourceName === 'youtubemusic')) {
+          const videoId = track.info.identifier;
+          const mixUrl = `https://www.youtube.com/watch?v=${videoId}&list=RD${videoId}`;
+          player.search({ query: mixUrl }, musicService.client.user).then(async (res) => {
+            if (res.tracks && res.tracks.length > 0) {
+              const recentIds = player.queue.previous.slice(-10).map(t => t.info.identifier);
+              if (player.queue.current) recentIds.push(player.queue.current.info.identifier);
+              
+              const nextTracks = res.tracks.filter(t => !recentIds.includes(t.info.identifier)).slice(0, 10);
+              if (nextTracks.length > 0) {
+                for (const nextTrack of nextTracks) {
+                  nextTrack.requester = {
+                    username: 'Layla (Autoplay)',
+                    avatarURL: () => musicService.client.user.displayAvatarURL()
+                  };
+                  player.queue.add(nextTrack);
+                }
+                if (!player.playing && !player.paused) {
+                  await player.play();
+                } else {
+                  musicService.updatePlayerMenu(guildId).catch(() => {});
+                }
+              }
+            }
+          }).catch(() => {
+            musicService.updatePlayerMenu(guildId).catch(() => {});
+          });
+          return;
+        }
+      }
+      musicService.updatePlayerMenu(guildId).catch(() => {});
+      return;
     }
 
     if (commandName === 'volume') {

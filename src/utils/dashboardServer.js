@@ -183,6 +183,9 @@ const server = http.createServer(async (req, res) => {
       if (ext === '.mp3') contentType = 'audio/mpeg';
       else if (ext === '.mp4') contentType = 'video/mp4';
       else if (ext === '.png') contentType = 'image/png';
+      else if (ext === '.wav') contentType = 'audio/wav';
+      else if (ext === '.ogg') contentType = 'audio/ogg';
+      else if (ext === '.flac') contentType = 'audio/flac';
 
       // Cabeceras equivalentes a Nginx
       res.setHeader('Access-Control-Allow-Origin', '*');

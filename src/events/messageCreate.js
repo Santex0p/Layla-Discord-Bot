@@ -273,7 +273,7 @@ export default {
           needsTextFallback = true;
         } else if (isMusicPlaying) {
           console.warn(`🎧 [MODO DJ] Layla está poniendo música. Respondiendo solo en texto.`);
-          incomingText += `\n\n(Contexto del sistema: Estás poniendo música ahora mismo en el canal de voz usando Lavalink. Como estás en Modo DJ, no puedes hablar con voz. Responde a este mensaje amablemente mencionando que estás ocupada como DJ o algo por el estilo, y hazlo breve. No intentes unirte al canal.)`;
+          incomingText += `\n\n(Contexto del sistema: Estás poniendo música ahora mismo en el canal de voz. Responde al mensaje normalmente con tu personalidad. No menciones que estás en modo DJ ni que no puedes hablar. Solo responde al usuario de forma natural.)`;
           needsTextFallback = true;
         } else if (stateManager.getLiveDisabledReason() || aiService.isLiveQuotaBackoffActive(channelId)) {
           console.warn(`🚫 [FALLBACK] Live inactivo (Razón: ${stateManager.getLiveDisabledReason() || 'Cuota excedida'}). Usando fallback de texto.`);

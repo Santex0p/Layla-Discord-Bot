@@ -9,6 +9,7 @@ class MusicService {
     this.initialized = false;
     this.playerMessages = new Map(); // guildId -> { messageId, channelId }
     this.autoplayStatus = new Map(); // guildId -> boolean
+    this.pendingAnnouncements = new Map(); // guildId -> Promise<Buffer|null> (pre-generación en background)
   }
 
   init(discordClient) {
@@ -80,33 +81,61 @@ class MusicService {
 
     this.manager.on('queueEnd', async (player, track) => {
       const isAutoplay = this.autoplayStatus.get(player.guildId);
-      
+
+      // Cuando el usuario salta la última canción, `track` puede llegar null/undefined.
+      // En ese caso, usamos el último track del historial como referencia para el autoplay.
+      const lastTrack = track || player.queue.previous?.[player.queue.previous.length - 1];
+
       // Intentar Autoplay si está activado y la canción anterior era de YouTube
-      if (isAutoplay && track && track.info && (track.info.sourceName === 'youtube' || track.info.sourceName === 'youtubemusic')) {
+      if (isAutoplay && lastTrack && lastTrack.info && (lastTrack.info.sourceName === 'youtube' || lastTrack.info.sourceName === 'youtubemusic')) {
+        console.log(`[MUSIC] Autoplay intentando buscar mix para: ${lastTrack.info.title} (${lastTrack.info.identifier})`);
         const channel = this.client.channels.cache.get(player.textChannelId);
         try {
-          const videoId = track.info.identifier;
+          const videoId = lastTrack.info.identifier;
           // Buscar un mix de radio basado en la canción que acaba de terminar
           const mixUrl = `https://www.youtube.com/watch?v=${videoId}&list=RD${videoId}`;
           const res = await player.search({ query: mixUrl }, this.client.user);
           
+          console.log(`[MUSIC] Resultados del mix: ${res.tracks ? res.tracks.length : 0} pistas encontradas.`);
+
           if (res.tracks && res.tracks.length > 0) {
             // Evitar repetir canciones recientes
             const recentIds = player.queue.previous.slice(-10).map(t => t.info.identifier);
             recentIds.push(videoId);
-            
-            const nextTrack = res.tracks.find(t => !recentIds.includes(t.info.identifier));
-            
-            if (nextTrack) {
-              player.queue.add(nextTrack);
+
+            const nextTracks = res.tracks.filter(t => !recentIds.includes(t.info.identifier)).slice(0, 10);
+            console.log(`[MUSIC] Pistas filtradas para añadir: ${nextTracks.length}`);
+
+            if (nextTracks.length > 0) {
+              for (const nextTrack of nextTracks) {
+                nextTrack.requester = {
+                  username: 'Layla (Autoplay)',
+                  avatarURL: () => this.client.user.displayAvatarURL()
+                };
+                player.queue.add(nextTrack);
+              }
+
+              // Obtener el buffer de anuncio pre-generado (si ya está listo) o generar ahora
+              const preGenPromise = this.pendingAnnouncements.get(player.guildId);
+              this.pendingAnnouncements.delete(player.guildId);
+              const preGenBuffer = preGenPromise ? await preGenPromise.catch(() => null) : null;
+
+              // Anuncio de DJ estilo Spotify antes de arrancar el siguiente bloque
+              await this._playDJAnnouncement(player, nextTracks, preGenBuffer).catch(() => {});
+
               if (!player.playing && !player.paused) await player.play();
-              if (channel) channel.send(`📻 **Autoplay**: Añadida automáticamente **${nextTrack.info.title}**`).catch(()=>{});
+
+              // Pre-generar ya el audio del SIGUIENTE anuncio en background (mientras suena este bloque)
+              this._preGenerateNextAnnouncement(player, nextTracks);
+
               return; // Si el autoplay fue exitoso, no ejecutamos la desconexión
             }
           }
         } catch (err) {
           console.error('[MUSIC] Error en Autoplay:', err);
         }
+      } else {
+         console.log(`[MUSIC] Autoplay omitido. isAutoplay: ${isAutoplay}, lastTrack: ${lastTrack ? 'Sí' : 'No'}`);
       }
 
       console.log(`[MUSIC] 📭 Queue ended in guild ${player.guildId}. Esperando 2 minutos antes de desconectar.`);
@@ -128,6 +157,124 @@ class MusicService {
     this.manager.init(this.client.user.id);
   }
 
+  /**
+   * Genera en background el audio del próximo anuncio DJ mientras el bloque actual suena.
+   * Almacena la promesa en pendingAnnouncements para que el siguiente queueEnd la use ya lista.
+   */
+  _preGenerateNextAnnouncement(player, currentTracks) {
+    import('./AiService.js').then(({ default: aiService }) => {
+      // Usamos las mismas canciones actuales como "pista" para el estilo del siguiente anuncio
+      const promise = aiService.generateDJAnnouncement(currentTracks, player.guildId);
+      this.pendingAnnouncements.set(player.guildId, promise);
+      promise.then(result => {
+        if (result) console.log(`[DJ-ANNOUNCE] Anuncio siguiente pre-generado (${result.buffer?.length || result.length} bytes, ${result.mimeType || 'unknown'}) y listo.`);
+      }).catch(() => this.pendingAnnouncements.delete(player.guildId));
+    }).catch(() => {});
+  }
+
+  /**
+   * Genera un anuncio de Layla via Lavalink (sin conflicto de conexión de voz).
+   * Guarda el audio en un archivo temporal, lo sirve via HTTP, y Lavalink lo reproduce.
+   * @param {object} player - Lavalink player
+   * @param {object[]} nextTracks - Próximas canciones
+   * @param {Buffer|null} preGeneratedBuffer - Buffer de audio pre-generado (opcional)
+   */
+  async _playDJAnnouncement(player, nextTracks, preGeneratedBuffer = null) {
+    try {
+      const { default: aiService } = await import('./AiService.js');
+      const { randomUUID } = await import('node:crypto');
+      const fsPromises = await import('node:fs/promises');
+      const path = await import('node:path');
+
+      console.log(`[DJ-ANNOUNCE] Generando anuncio para las próximas ${nextTracks.length} canciones...`);
+
+      // Usar buffer pre-generado si está disponible, si no, generar ahora
+      let audioResult = preGeneratedBuffer;
+      if (!audioResult) {
+        console.log(`[DJ-ANNOUNCE] No hay pre-generado disponible. Generando en tiempo real...`);
+        audioResult = await aiService.generateDJAnnouncement(nextTracks, player.guildId);
+      } else {
+        console.log(`[DJ-ANNOUNCE] Usando buffer pre-generado. Sin delay.`);
+      }
+      if (!audioResult) {
+        console.warn('[DJ-ANNOUNCE] Sin audio, saltando anuncio.');
+        return;
+      }
+
+      // audioResult puede ser { buffer, mimeType } o un Buffer legacy
+      const audioBuffer = audioResult.buffer || audioResult;
+      const mimeType = audioResult.mimeType || 'audio/l16';
+      console.log(`[DJ-ANNOUNCE] Audio buffer: ${audioBuffer.length} bytes, mimeType: ${mimeType}`);
+
+      // Convertir PCM L16 a MP3 usando AudioService (ffmpeg) — formato nativo de Lavalink
+      const { default: audioService } = await import('./AudioService.js');
+      const mp3Buffer = await audioService.pcm16ToMp3Buffer(audioBuffer, 24000, 1);
+      console.log(`[DJ-ANNOUNCE] MP3 generado: ${mp3Buffer.length} bytes`);
+
+      // Escribir a data/audios/announce_<uuid>.mp3
+      const audiosDir = path.default.join(process.cwd(), 'data', 'audios');
+      await fsPromises.default.mkdir(audiosDir, { recursive: true });
+      const filename = `announce_${randomUUID()}.mp3`;
+      const filepath = path.default.join(audiosDir, filename);
+      await fsPromises.default.writeFile(filepath, mp3Buffer);
+
+      // Usar la ruta compartida del volumen Docker con prefijo 'local:' que Lavalink v4 requiere
+      const localPath = `/app/data/audios/${filename}`;
+      const announceUrl = `local:${localPath}`;
+
+      console.log(`[DJ-ANNOUNCE] Archivo MP3 generado. Cargando en Lavalink: ${announceUrl}`);
+
+      // Cargar el archivo local en Lavalink
+      const res = await player.search({ query: announceUrl }, this.client.user);
+      if (!res?.tracks?.length) {
+        console.warn('[DJ-ANNOUNCE] Lavalink no pudo cargar el archivo de anuncio.');
+        await fsPromises.default.unlink(filepath).catch(() => {});
+        return;
+      }
+
+      const announceTrack = res.tracks[0];
+      announceTrack.requester = {
+        username: 'Layla (DJ)',
+        avatarURL: () => this.client.user.displayAvatarURL()
+      };
+      
+      // Sobrescribir los metadatos visuales de la pista local
+      announceTrack.info.title = 'Layla Presenta';
+      announceTrack.info.author = 'Layla DJ';
+      announceTrack.info.artworkUrl = this.client.user.displayAvatarURL();
+      announceTrack.info.uri = ''; // Para no mostrar la ruta del archivo como link
+
+      // Insertar el anuncio al frente de la cola (antes de las canciones de música)
+      // lavalink-client usa player.queue.tracks como array interno
+      if (typeof player.queue.unshift === 'function') {
+        player.queue.unshift(announceTrack);
+      } else {
+        player.queue.tracks.unshift(announceTrack);
+      }
+      console.log(`[DJ-ANNOUNCE] Anuncio insertado en la cola. Reproduciendo...`);
+      if (!player.playing && !player.paused) await player.play();
+
+      // Esperar a que termine el track del anuncio (evento trackEnd con el filename)
+      await new Promise((resolve) => {
+        const onEnd = (p, t) => {
+          if (t?.info?.uri?.includes(filename)) {
+            this.manager.off('trackEnd', onEnd);
+            resolve();
+          }
+        };
+        this.manager.on('trackEnd', onEnd);
+        setTimeout(() => { this.manager.off('trackEnd', onEnd); resolve(); }, 60_000);
+      });
+
+      // Borrar el archivo temporal
+      await fsPromises.default.unlink(filepath).catch(() => {});
+      console.log(`[DJ-ANNOUNCE] Anuncio completado.`);
+
+    } catch (err) {
+      console.error('[DJ-ANNOUNCE] Error durante el anuncio:', err.message);
+    }
+  }
+
   formatDuration(ms) {
     if (!ms || ms === 0) return '00:00';
     const totalSeconds = Math.floor(ms / 1000);
@@ -140,14 +287,22 @@ class MusicService {
     const embed = new EmbedBuilder()
       .setColor('#FF007F')
       .setTitle('🎧 Layla DJ')
-      .setDescription(`**Reproduciendo ahora:**\n[${track.info.title}](${track.info.uri || ''})`)
+      .setDescription(`**Reproduciendo ahora:**\n${track.info.uri ? `[${track.info.title}](${track.info.uri})` : `**${track.info.title}**`}`)
       .setThumbnail(track.info.artworkUrl || null)
       .addFields(
         { name: '👤 Autor', value: track.info.author || 'Desconocido', inline: true },
-        { name: '⏱️ Duración', value: this.formatDuration(track.info.length), inline: true },
+        { name: '⏱️ Duración', value: this.formatDuration(track.info.duration), inline: true },
         { name: '📜 En Cola', value: `${player.queue.tracks.length} canciones`, inline: true }
-      )
-      .setFooter({ text: `Volumen: ${player.volume}%` });
+      );
+
+    if (track.requester) {
+      embed.setFooter({
+        text: `Pedido por ${track.requester.username || track.requester.tag} • Volumen: ${player.volume}%`,
+        iconURL: track.requester.avatarURL ? track.requester.avatarURL() : (track.requester.displayAvatarURL ? track.requester.displayAvatarURL() : undefined)
+      });
+    } else {
+      embed.setFooter({ text: `Volumen: ${player.volume}%` });
+    }
 
     const isPaused = player.paused;
     const row = new ActionRowBuilder().addComponents(
@@ -179,7 +334,7 @@ class MusicService {
   async sendPlayerMenu(player) {
     const track = player.queue.current;
     if (!track) return;
-    
+
     const channel = this.client.channels.cache.get(player.textChannelId);
     if (!channel) return;
 
@@ -196,7 +351,7 @@ class MusicService {
   async updatePlayerMenu(guildId) {
     const player = this.manager.getPlayer(guildId);
     if (!player || !player.queue.current) return;
-    
+
     const record = this.playerMessages.get(guildId);
     if (!record) return;
 
